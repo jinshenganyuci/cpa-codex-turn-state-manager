@@ -1,0 +1,34 @@
+# Optional advanced configuration. Store installations work without these parameters.
+plugins:
+  enabled: true
+  dir: /CLIProxyAPI/plugins
+  configs:
+    codex-turn-state-manager:
+      enabled: true
+      mode: force # Use a validated cache when available; otherwise pass through.
+      dry_run: false
+      require_model_match: true
+      prefer_292: true
+      standby_enabled: true
+      runtime_file: /CLIProxyAPI/private/turn-state/runtime.json
+      block_without_state: false # Missing cache passes through while acquisition continues.
+      selection_required: true
+      selection_file: /CLIProxyAPI/private/turn-state/selection.json
+      state_file: /CLIProxyAPI/private/turn-state/current.json
+      archive_dir: /CLIProxyAPI/private/turn-state/archive
+      defaults:
+        accepted_blocks: [10, 12] # 292 preferred, 332 fallback.
+        models: [gpt-6-astra, gpt-5.6-sol]
+      probe:
+        enabled: true # Acquire asynchronously and refresh before expiry.
+        continuous: true # Discover credentials at startup; retry until a target is acquired.
+        # Acquisition uses the proxy configured on each CPA credential.
+        reasoning_effort: medium
+        on_missing: true
+        background_refresh: true
+        refresh_on_errors: false
+        max_attempts: 1
+        max_per_hour: 6 # Used only when continuous is false; continuous has no hourly cap.
+        retry_seconds: 5
+        refresh_before_seconds: 300 # Refresh at age 55 minutes; stop reuse at 60.
+        quota_backoff_seconds: 900

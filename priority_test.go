@@ -1,0 +1,257 @@
+package main
+
+import (
+	"context"
+	"net/http"
+	"os"
+	"path/filepath"
+	goruntime "runtime"
+	"strings"
+	"testing"
+	"time"
+
+	"gopkg.in/yaml.v3"
+)
+
+func boolSetting(value bool) *bool { return &value }
+
+func priorityRuntime(t *testing.T) *runtimeState {
+	state := guardedRuntime(t)
+	state.config.RequireModelMatch = boolSetting(true)
+	state.config.Prefer292 = boolSetting(true)
+	state.config.StandbyEnabled = boolSetting(true)
+	state.config.Probe.Continuous = true
+	return state
+}
+
+func acceptedState(t *testing.T, state *runtimeState, blocks int, issued time.Time, source string) storedState {
+	value := makeFernetToken(t, issued, blocks)
+	return storedState{Value: value, IssuedAt: issued, Blocks: blocks, Identity: identityHash("auth-a", "account-a"), ResponseModel: "gpt-6-astra", Source: source, CapturedAt: state.now()}
+}
+
+func Test292PriorityAndStandbyHandoff(t *testing.T) {
+	state := priorityRuntime(t)
+	key := stateKey("auth-a", "gpt-6-astra")
+	now := state.now()
+	state.now = func() time.Time { return now }
+	fallback := acceptedState(t, state, 12, now.Add(-10*time.Minute), "probe")
+	if got := state.acceptStateLocked(key, fallback); got != "active" {
+		t.Fatal(got)
+	}
+	if !state.acquisitionDueLocked(key).IsZero() {
+		t.Fatal("332 stopped the search for 292")
+	}
+	preferred := acceptedState(t, state, 10, now.Add(-5*time.Minute), "business")
+	if got := state.acceptStateLocked(key, preferred); got != "upgraded_292" {
+		t.Fatal(got)
+	}
+	newFallback := acceptedState(t, state, 12, now.Add(-time.Minute), "probe")
+	if got := state.acceptStateLocked(key, newFallback); got != "standby" {
+		t.Fatal(got)
+	}
+	if state.current[key].Value != preferred.Value {
+		t.Fatal("332 replaced valid 292")
+	}
+	next := acceptedState(t, state, 10, now, "business")
+	if got := state.acceptStateLocked(key, next); got != "standby" {
+		t.Fatal(got)
+	}
+	if state.current[key].Value != preferred.Value || state.standby[key].Value != next.Value {
+		t.Fatal("standby interrupted the current state")
+	}
+	if got := state.acceptStateLocked(key, next); got != "duplicate" {
+		t.Fatal("echo was accepted again")
+	}
+	newer332 := acceptedState(t, state, 12, now.Add(time.Second), "probe")
+	if got := state.acceptStateLocked(key, newer332); got != "lower_priority" {
+		t.Fatal("332 replaced preferred standby")
+	}
+	now = preferred.IssuedAt.Add(time.Hour)
+	if !state.promoteStandbyLocked(key) || state.current[key].Value != next.Value {
+		t.Fatal("standby did not take over on expiry")
+	}
+}
+
+func TestBusiness292RecoveryNeedsSuccessAndMatchingModel(t *testing.T) {
+	for _, kind := range []string{"good", "failed", "mismatch", "missing_model"} {
+		t.Run(kind, func(t *testing.T) {
+			state := priorityRuntime(t)
+			key := stateKey("auth-a", "gpt-6-astra")
+			state.config.ArchiveDir = filepath.Join(t.TempDir(), "archive")
+			active := acceptedState(t, state, 10, state.now().Add(-5*time.Minute), "probe")
+			state.acceptStateLocked(key, active)
+			calls := 0
+			state.fetch = func(context.Context, probeAuth, string, *proxyEndpoint, proxyEndpoint) (string, string, string) {
+				calls++
+				return "", "network_error", ""
+			}
+			begin(t, state, "business", "auth-a", "gpt-6-astra", "")
+			newValue := makeFernetToken(t, state.now(), 10)
+			state.captureCandidate("business", http.Header{turnStateHeader: {newValue}})
+			model := "gpt-6-astra"
+			outcome := "succeeded"
+			status := "completed"
+			if kind == "mismatch" {
+				model = "gpt-5.6-luna"
+			}
+			if kind == "missing_model" {
+				model = ""
+			}
+			if kind == "failed" {
+				outcome = "failed"
+				status = "failed"
+			}
+			state.observeBody("business", jsonBytes(map[string]any{"type": "response." + status, "response": map[string]string{"status": status, "model": model}}))
+			finish(t, state, "business", outcome, false)
+			row := state.history[len(state.history)-1]
+			if calls != 0 {
+				t.Fatal("business recovery generated a probe")
+			}
+			if kind == "good" {
+				if state.standby[key].Value != newValue || state.standby[key].Source != "business" || row.CacheAction != "standby" || row.Acceptance != "accepted" {
+					t.Fatalf("business standby not recorded: %+v", row)
+				}
+				original := state.standby[key]
+				now := active.IssuedAt.Add(55 * time.Minute)
+				state.now = func() time.Time { return now }
+				state.ensureProbe("auth-a", "gpt-6-astra")
+				if calls != 0 || !state.nextRefreshLocked(key).Equal(original.IssuedAt.Add(55*time.Minute)) {
+					t.Fatal("business standby failed to avoid the old active refresh")
+				}
+				begin(t, state, "echo", "auth-a", "gpt-6-astra", "")
+				state.captureCandidate("echo", http.Header{turnStateHeader: {newValue}})
+				state.observeBody("echo", []byte(`{"type":"response.completed","response":{"status":"completed","model":"gpt-6-astra"}}`))
+				finish(t, state, "echo", "succeeded", false)
+				if state.standby[key] != original || state.history[len(state.history)-1].CacheAction != "duplicate" {
+					t.Fatal("echo renewed standby time or provenance")
+				}
+			} else if len(state.standby) != 0 {
+				t.Fatal("unverified business state entered standby")
+			}
+			if kind == "mismatch" {
+				if len(state.current) != 0 || !begin(t, state, "after_mismatch", "auth-a", "gpt-6-astra", "").Terminate {
+					t.Fatal("mismatched state did not close the request gate")
+				}
+			}
+		})
+	}
+}
+
+func TestLateMismatchDoesNotInvalidateNewCache(t *testing.T) {
+	state := priorityRuntime(t)
+	key := stateKey("auth-a", "gpt-6-astra")
+	old := acceptedState(t, state, 12, state.now().Add(-time.Minute), "probe")
+	state.acceptStateLocked(key, old)
+	begin(t, state, "old_request", "auth-a", "gpt-6-astra", "")
+	preferred := acceptedState(t, state, 10, state.now(), "probe")
+	state.acceptStateLocked(key, preferred)
+	state.observeBody("old_request", []byte(`{"type":"response.completed","response":{"status":"completed","model":"gpt-5.6-luna"}}`))
+	finish(t, state, "old_request", "succeeded", false)
+	if state.current[key].Value != preferred.Value {
+		t.Fatal("late request invalidated newly acquired 292")
+	}
+}
+
+func TestProbeModelAcceptanceAnd292Search(t *testing.T) {
+	state := priorityRuntime(t)
+	key := stateKey("auth-a", "gpt-6-astra")
+	now := state.now()
+	state.now = func() time.Time { return now }
+	calls := 0
+	state.fetch = func(context.Context, probeAuth, string, *proxyEndpoint, proxyEndpoint) (string, string, string) {
+		calls++
+		switch calls {
+		case 1:
+			return makeFernetToken(t, now, 10), "ok", "gpt-5.6-luna"
+		case 2:
+			return makeFernetToken(t, now, 12), "ok", "gpt-6-astra"
+		default:
+			return makeFernetToken(t, now, 10), "ok", "gpt-6-astra"
+		}
+	}
+	state.ensureProbe("auth-a", "gpt-6-astra")
+	if len(state.current) != 0 || state.history[0].Acceptance != "model_mismatch" {
+		t.Fatal("mismatched probe was cached")
+	}
+	now = now.Add(5 * time.Second)
+	state.ensureProbe("auth-a", "gpt-6-astra")
+	if len(state.current[key].Value) != 332 {
+		t.Fatal("332 was not available as fallback")
+	}
+	now = now.Add(5 * time.Second)
+	state.ensureProbe("auth-a", "gpt-6-astra")
+	if calls != 3 || len(state.current[key].Value) != 292 {
+		t.Fatal("search did not prefer 292")
+	}
+	now = now.Add(5 * time.Second)
+	state.ensureProbe("auth-a", "gpt-6-astra")
+	if calls != 3 {
+		t.Fatal("fresh 292 did not pause acquisition")
+	}
+}
+
+func TestHistoryAndStandbySurviveReload(t *testing.T) {
+	state := priorityRuntime(t)
+	dir := t.TempDir()
+	state.config.StateFile = filepath.Join(dir, "state.json")
+	state.config.RuntimeFile = filepath.Join(dir, "runtime.json")
+	state.config.SelectionFile = filepath.Join(dir, "selection.json")
+	if err := persistSelection(state.config.SelectionFile, state.selection); err != nil {
+		t.Fatal(err)
+	}
+	key := stateKey("auth-a", "gpt-6-astra")
+	state.acceptStateLocked(key, acceptedState(t, state, 10, state.now().Add(-time.Minute), "probe"))
+	state.acceptStateLocked(key, acceptedState(t, state, 10, state.now(), "business"))
+	state.recordLocked(key, 292, true, "replaced", "medium")
+	state.history[0].Acceptance = "accepted"
+	state.history[0].StateSource = "business"
+	state.journalRevision++
+	state.flushPersistence()
+	for _, p := range []string{state.config.StateFile, state.config.RuntimeFile} {
+		info, err := os.Stat(p)
+		if err != nil || goruntime.GOOS != "windows" && info.Mode().Perm() != 0600 {
+			t.Fatal("persistence not private")
+		}
+	}
+	state.config.Probe.Enabled = false
+	config, err := yaml.Marshal(state.config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reloaded := newRuntimeState()
+	reloaded.now = state.now
+	reloaded.hostCall = state.hostCall
+	if err := reloaded.configure(jsonBytes(lifecycleRequest{ConfigYAML: config, SchemaVersion: 4})); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(reloaded.shutdown)
+	if len(reloaded.history) != 1 || reloaded.standby[key].Source != "business" {
+		t.Fatal("runtime history or standby lost on reload")
+	}
+	status, err := reloaded.statusResponse()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(status), state.standby[key].Value) {
+		t.Fatal("state value leaked in status")
+	}
+	var decoded runtimeJournal
+	if err := readPrivateJSON(state.config.RuntimeFile, 4<<20, &decoded); err != nil || decoded.History[0].StateSource != "business" {
+		t.Fatal("history was not persisted")
+	}
+}
+
+func TestLegacyStateCannotInventModelEvidence(t *testing.T) {
+	state := priorityRuntime(t)
+	key := stateKey("auth-a", "gpt-6-astra")
+	legacy := acceptedState(t, state, 10, state.now(), "")
+	legacy.ResponseModel = ""
+	if state.acceptStateLocked(key, legacy) != "rejected" {
+		t.Fatal("legacy state without evidence passed strict admission")
+	}
+	for _, model := range []string{"gpt-6-astra-mini", "gpt-5.6-luna", "gpt-6"} {
+		if modelConsistent("gpt-6-astra", model) {
+			t.Fatal("a partial name passed exact model admission")
+		}
+	}
+}

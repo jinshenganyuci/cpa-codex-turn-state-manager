@@ -1,0 +1,20 @@
+/dist/
+/private/
+/auths/
+*.so
+*.dll
+*.dylib
+*.h
+*.log
+current.json
+states-*.json
+proxy-*.json
+
+# Local operational reports and private runtime data
+/CANDY_*.md
+/HUNT_*.md
+/DUAL_FAST*.md
+/.codex-turn-state-manager/
+*.selection.json
+*.runtime.json
+.env
