@@ -20,7 +20,7 @@ https://raw.githubusercontent.com/jinshenganyuci/cpa-codex-turn-state-manager/ma
 
 插件页面路径：`/v0/resource/plugins/codex-turn-state-manager/status`。默认沿用同站点 CPA 已保存的登录；单独输入管理密钥时，验证成功后由当前浏览器记住。管理接口仍验证密钥。清除浏览器数据、更换域名或登录失效时，需要重新登录。
 
-也可从 [Releases](https://github.com/jinshenganyuci/cpa-codex-turn-state-manager/releases) 下载对应平台 ZIP，将其中的原生库放入 CPA 插件目录，再通过 CPA 页面启用。提供 Linux、Windows、macOS 的 amd64 / arm64 包；Linux 使用 glibc。
+也可从 [Releases](https://github.com/jinshenganyuci/cpa-codex-turn-state-manager/releases) 下载 Linux amd64 ZIP，将其中的原生库放入 CPA 插件目录，再通过 CPA 页面启用。本仓库仅发布 Linux amd64 安装包，使用 glibc。
 
 ## 默认行为
 

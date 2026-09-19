@@ -21,7 +21,7 @@ The CPA instance must already have working Codex OAuth credentials with their ow
 
 Dashboard: `/v0/resource/plugins/codex-turn-state-manager/status`. It reuses same-origin saved CPA login; a separately entered key is remembered after successful verification. The management API still requires authentication. Browser storage uses reversible obfuscation, not encryption.
 
-Alternatively, download a platform ZIP from [Releases](https://github.com/jinshenganyuci/cpa-codex-turn-state-manager/releases), place its native library in CPA's plugin directory and enable it through CPA. Linux, Windows and macOS packages cover amd64 and arm64. Linux requires glibc.
+Alternatively, download the Linux amd64 ZIP from [Releases](https://github.com/jinshenganyuci/cpa-codex-turn-state-manager/releases), place its native library in CPA's plugin directory and enable it through CPA. Only Linux amd64 packages are published. Linux requires glibc.
 
 ## Defaults and behavior
 
@@ -77,7 +77,7 @@ CPA_PLAYWRIGHT_MODULE=/path/to/playwright node scripts/test-selection-ui.cjs
 CPA_PLAYWRIGHT_MODULE=/path/to/playwright node scripts/test-login-ui.cjs
 ```
 
-CI runs tests and browser checks, builds six native platform archives plus source, verifies checksums and publishes a GitHub Release. Historical verification documents describe their named versions and may have different defaults.
+CI runs tests and browser checks, builds the Linux amd64 native archive, verifies checksums and publishes a GitHub Release. Historical verification documents describe their named versions and may have different defaults.
 
 `cmd/livecheck` and `cmd/hunt292` are opt-in development tools, not the automatic runtime or part of normal tests. They require separately supplied private credentials/proxies and never run merely from installation.
 

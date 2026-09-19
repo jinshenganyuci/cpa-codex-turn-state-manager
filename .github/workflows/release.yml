@@ -30,17 +30,8 @@ jobs:
           CPA_PLAYWRIGHT_MODULE=/tmp/manager-browser/node_modules/playwright node scripts/test-login-ui.cjs
   build:
     needs: test
-    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - {goos: linux, goarch: amd64, runner: ubuntu-22.04, ext: so}
-          - {goos: linux, goarch: arm64, runner: ubuntu-24.04-arm, ext: so}
-          - {goos: darwin, goarch: amd64, runner: macos-15-intel, ext: dylib}
-          - {goos: darwin, goarch: arm64, runner: macos-15, ext: dylib}
-          - {goos: windows, goarch: amd64, runner: windows-2025, ext: dll}
+    name: Build Linux amd64
+    runs-on: ubuntu-22.04
     defaults:
       run:
         shell: bash
@@ -58,57 +49,18 @@ jobs:
           go test ./...
           go vet ./...
           mkdir -p dist
-          CGO_ENABLED=1 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -trimpath -buildvcs=false -buildmode=c-shared -ldflags '-s -w' -o dist/codex-turn-state-manager.${{ matrix.ext }} .
-          python3 scripts/package.py ${{ matrix.goos }} ${{ matrix.goarch }} ${{ matrix.ext }}
+          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -trimpath -buildvcs=false -buildmode=c-shared -ldflags '-s -w' -o dist/codex-turn-state-manager.so .
+          python3 scripts/package.py linux amd64 so
       - uses: actions/upload-artifact@v4
         with:
-          name: plugin-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: plugin-linux-amd64
           path: |
-            dist/codex-turn-state-manager_*_${{ matrix.goos }}_${{ matrix.goarch }}.zip
-            dist/codex-turn-state-manager_*_${{ matrix.goos }}_${{ matrix.goarch }}.zip.sha256
-          if-no-files-found: error
-      - uses: actions/upload-artifact@v4
-        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
-        with:
-          name: plugin-source
-          path: |
-            dist/codex-turn-state-manager_*_source.zip
-            dist/codex-turn-state-manager_*_source.zip.sha256
-          if-no-files-found: error
-  build-windows-arm64:
-    needs: test
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-          cache: true
-      - name: Build native ARM64 DLL
-        uses: go-cross/cgo-actions@d0b8f2f2d67923ce9a42d92a7ef0ed1ebd905f0a
-        env:
-          GOFLAGS: -trimpath -buildmode=c-shared -buildvcs=false
-        with:
-          dir: .
-          packages: .
-          targets: windows-arm64
-          out-dir: dist/windows-arm64
-          output: codex-turn-state-manager.dll
-          flags: -ldflags=-s -w
-      - name: Package
-        run: |
-          cp dist/windows-arm64/codex-turn-state-manager.dll dist/codex-turn-state-manager.dll
-          python3 scripts/package.py windows arm64 dll
-      - uses: actions/upload-artifact@v4
-        with:
-          name: plugin-windows-arm64
-          path: |
-            dist/codex-turn-state-manager_*_windows_arm64.zip
-            dist/codex-turn-state-manager_*_windows_arm64.zip.sha256
+            dist/codex-turn-state-manager_*_linux_amd64.zip
+            dist/codex-turn-state-manager_*_linux_amd64.zip.sha256
           if-no-files-found: error
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build, build-windows-arm64]
+    needs: build
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -125,4 +77,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: gh release create "$GITHUB_REF_NAME" dist/*.zip dist/checksums.txt --verify-tag --title "回合状态管理 $GITHUB_REF_NAME" --notes-file .github/release-notes.md
+        run: gh release create "$GITHUB_REF_NAME" dist/*_linux_amd64.zip dist/checksums.txt --verify-tag --title "回合状态管理 $GITHUB_REF_NAME" --notes-file .github/release-notes.md

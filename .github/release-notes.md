@@ -12,8 +12,6 @@ Enable CPA plugins, add the source in CPA configuration, then install **回合�
 - Preserve selections, active/standby and recent history in the CPA plugin directory.
 - Include the management UI and same-origin remembered CPA login.
 
-Linux packages require glibc. Verified with jinshenganyuci/CLIProxyAPI v7.3.6-codex-identity.1 and v7.3.8-codex-identity.1; other hosts need the native plugin API and state-header forwarding. Token lengths and reported model names are not proof of model quality. This is separate from the older manual `codex-turn-state` plugin; use one state-writing plugin for a given credential.
+Only the Linux amd64 installation package is published; it requires glibc. Verified with jinshenganyuci/CLIProxyAPI v7.3.6-codex-identity.1 and v7.3.8-codex-identity.1; other hosts need the native plugin API and state-header forwarding. Token lengths and reported model names are not proof of model quality. This is separate from the older manual `codex-turn-state` plugin; use one state-writing plugin for a given credential.
 
 Existing installations with an explicit `block_without_state: true` must set it to false or remove the option to adopt passthrough. Fresh store installations already pass through by default.
-
-This release also fixes Windows archive creation, which previously treated Windows directory permissions as Unix mode bits.
