@@ -359,3 +359,21 @@ func TestIdentityLookupFailurePreservesHeaders(t *testing.T) {
 		t.Fatal("identity failure mutated request")
 	}
 }
+
+func TestArchiveRejectsSharedDirectoryOnUnix(t *testing.T) {
+	if goruntime.GOOS == "windows" {
+		t.Skip("Windows uses directory ACLs instead of POSIX mode bits")
+	}
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	state := storedState{Value: strings.Repeat("a", 292)}
+	if err := archiveState(dir, stateKey("auth-a", "gpt-6-astra"), state, "medium"); err == nil {
+		t.Fatal("archive accepted a publicly readable directory")
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) != 0 {
+		t.Fatal("rejected archive wrote private state")
+	}
+}

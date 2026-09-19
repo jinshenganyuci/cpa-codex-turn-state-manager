@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"sort"
 	"strings"
 	"time"
@@ -147,7 +148,7 @@ func archiveState(dir, key string, candidate storedState, reasoning string) erro
 		return errors.New("create private archive failed")
 	}
 	info, err := os.Lstat(dir)
-	if err != nil || !info.IsDir() || info.Mode().Perm()&0077 != 0 {
+	if err != nil || !info.IsDir() || (goruntime.GOOS != "windows" && info.Mode().Perm()&0077 != 0) {
 		return errors.New("archive directory must have mode 0700")
 	}
 	auth, model := splitStateKey(key)

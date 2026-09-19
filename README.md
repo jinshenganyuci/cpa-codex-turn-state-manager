@@ -1,6 +1,6 @@
 # CPA Codex Turn State Manager
 
-Native CPA plugin **0.2.2**. Acquire, privately retain and reuse Codex `X-Codex-Turn-State`, preferring **292** and using **332** as fallback. [中文安装说明](README_CN.md).
+Native CPA plugin **0.2.3**. Acquire, privately retain and reuse Codex `X-Codex-Turn-State`, preferring **292** and using **332** as fallback. [中文安装说明](README_CN.md).
 
 **Requests pass through when no valid cached state exists.** Background acquisition continues independently and successful states are used automatically. Installation requires no plugin-specific YAML or manually entered state values.
 
@@ -43,7 +43,7 @@ Cancel stops current attempts; automatic acquisition may resume. Deselect and sa
 
 By default, private files live in `<CPA plugins.dir>/.codex-turn-state-manager/`, discovered from the host's startup configuration. With no custom directory, this is `plugins/` under the CPA working directory. Preserve a writable persistent mount for that directory. Existing explicit paths remain respected. Embedded hosts without a normal CPA config may supply an explicit `state_file`.
 
-Atomic files retain active/standby state, selections, the newest 200 request observations and backoff. Unix files use 0600 and private directories 0700. Complete accepted values also remain in private archives after expiry; they are not automatically reimported. Never publish these files. The UI exposes metadata only, not raw state/OAuth tokens.
+Atomic files retain active/standby state, selections, the newest 200 request observations and backoff. Unix files use 0600 and private directories 0700; Windows access is governed by the storage directory's inherited ACL. Complete accepted values also remain in private archives after expiry; they are not automatically reimported. Never publish these files. The UI exposes metadata only, not raw state/OAuth tokens.
 
 **An existing explicit `block_without_state: true` is preserved during upgrade. Remove it or set it to false to adopt passthrough.** Other explicit settings and selection paths are preserved too. Cached values without captured model evidence must be reacquired under strict admission. Old proxy-pool fields are tolerated but discarded.
 

@@ -20,7 +20,7 @@ import (
 
 const (
 	pluginName        = "codex-turn-state-manager"
-	pluginVersion     = "0.2.2"
+	pluginVersion     = "0.2.3"
 	pluginSchema      = uint32(4)
 	pluginABIVersion  = uint32(1)
 	defaultMaxBytes   = 4096

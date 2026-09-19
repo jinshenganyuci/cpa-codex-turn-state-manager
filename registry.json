@@ -6,7 +6,7 @@
       "name": "回合状态管理",
       "description": "自动采集并缓存 292/332，292 优先；仅使用凭据代理，不同凭据与模型并行获取。无有效缓存时默认放行，安装后在 UI 勾选即可使用。",
       "author": "jinshenganyuci",
-      "version": "0.2.2",
+      "version": "0.2.3",
       "repository": "https://github.com/jinshenganyuci/cpa-codex-turn-state-manager",
       "homepage": "https://github.com/jinshenganyuci/cpa-codex-turn-state-manager/blob/main/README_CN.md",
       "license": "MIT",

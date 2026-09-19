@@ -117,7 +117,7 @@ func TestRealCPAStoreInstallWithoutPluginParameters(t *testing.T) {
 			_, _ = w.Write(payload.Bytes())
 			return
 		}
-		data := map[string]any{"schema_version": 2, "plugins": []any{map[string]any{"id": "codex-turn-state-manager", "name": "Codex Turn State Manager", "description": "Fresh install test", "author": "jinshenganyuci", "version": "0.2.2", "repository": "https://github.com/jinshenganyuci/cpa-codex-turn-state-manager", "install": map[string]any{"type": "direct", "artifacts": []any{map[string]any{"goos": "linux", "goarch": "amd64", "url": strings.TrimSuffix(registryURL, "/registry.json") + "/plugin.zip", "sha256": fmt.Sprintf("%x", sum)}}}}}}
+		data := map[string]any{"schema_version": 2, "plugins": []any{map[string]any{"id": "codex-turn-state-manager", "name": "Codex Turn State Manager", "description": "Fresh install test", "author": "jinshenganyuci", "version": "0.2.3", "repository": "https://github.com/jinshenganyuci/cpa-codex-turn-state-manager", "install": map[string]any{"type": "direct", "artifacts": []any{map[string]any{"goos": "linux", "goarch": "amd64", "url": strings.TrimSuffix(registryURL, "/registry.json") + "/plugin.zip", "sha256": fmt.Sprintf("%x", sum)}}}}}}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(data)
 	}))
@@ -178,7 +178,7 @@ func TestRealCPAStoreInstallWithoutPluginParameters(t *testing.T) {
 		return s
 	}
 	s := read()
-	if s.Version != "0.2.2" || s.Mode != "force" || s.Guard || !s.Probe || !s.Continuous || !s.Parallel || !s.Selection.Persistent {
+	if s.Version != "0.2.3" || s.Mode != "force" || s.Guard || !s.Probe || !s.Continuous || !s.Parallel || !s.Selection.Persistent {
 		t.Fatalf("fresh install needs manual parameters: %+v", s)
 	}
 	claims, _ := json.Marshal(map[string]any{"email": "fresh@example.test", "https://api.openai.com/auth": map[string]string{"chatgpt_plan_type": "team"}})

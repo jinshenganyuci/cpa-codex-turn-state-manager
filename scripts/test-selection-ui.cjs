@@ -10,7 +10,7 @@ const credential = 'credential-a';
 let revision = 0, models = [], accounts = [], saves = 0, probeCalls = 0;
 const modelOptions = ['gpt-6-astra', 'gpt-5.6-sol', 'gpt-5.6-luna'];
 function status() {
-  return {version: '0.2.2', probe_parallel: true, prefer_292: true, require_model_match: true, standby_enabled: true, history_persistent: true,
+  return {version: '0.2.3', probe_parallel: true, prefer_292: true, require_model_match: true, standby_enabled: true, history_persistent: true,
  block_without_state: false, blocking_active: false, mode: 'force', probe_enabled: true, continuous: true, retry_seconds: 5,
     reasoning_effort: 'medium', proxy_mode: 'credential', dry_run: false, valid_count: 0,
     selection: {required: true, persistent: true, revision, models, model_options: modelOptions,
