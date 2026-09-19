@@ -30,6 +30,7 @@ func TestContinuousDiscoversAndRetriesUntilEitherTarget(t *testing.T) {
 	for _, blocks := range []int{10, 12} {
 		t.Run(map[int]string{10: "292", 12: "332"}[blocks], func(t *testing.T) {
 			state := continuousRuntime(t)
+			state.config.Prefer292 = boolSetting(true)
 			now := state.now()
 			state.now = func() time.Time { return now }
 			calls := 0

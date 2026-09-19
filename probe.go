@@ -184,9 +184,7 @@ func (state *runtimeState) prepareProbe(authID, model string, manual bool) (*pro
 		reason = "manual"
 	}
 	if reason == "" {
-		if len(state.current[key].Value) == 332 && enabledByDefault(cfg.Prefer292) {
-			reason = "prefer_292"
-		} else if state.current[key].Value != "" {
+		if state.current[key].Value != "" {
 			reason = "before_expiry"
 		} else {
 			reason = "missing_state"

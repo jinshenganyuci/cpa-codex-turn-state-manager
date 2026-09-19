@@ -117,7 +117,7 @@ func TestRealCPAStoreInstallWithoutPluginParameters(t *testing.T) {
 			_, _ = w.Write(payload.Bytes())
 			return
 		}
-		data := map[string]any{"schema_version": 2, "plugins": []any{map[string]any{"id": "codex-turn-state-manager", "name": "Codex Turn State Manager", "description": "Fresh install test", "author": "jinshenganyuci", "version": "0.2.3", "repository": "https://github.com/jinshenganyuci/cpa-codex-turn-state-manager", "install": map[string]any{"type": "direct", "artifacts": []any{map[string]any{"goos": "linux", "goarch": "amd64", "url": strings.TrimSuffix(registryURL, "/registry.json") + "/plugin.zip", "sha256": fmt.Sprintf("%x", sum)}}}}}}
+		data := map[string]any{"schema_version": 2, "plugins": []any{map[string]any{"id": "codex-turn-state-manager", "name": "Codex Turn State Manager", "description": "Fresh install test", "author": "jinshenganyuci", "version": "0.2.4", "repository": "https://github.com/jinshenganyuci/cpa-codex-turn-state-manager", "install": map[string]any{"type": "direct", "artifacts": []any{map[string]any{"goos": "linux", "goarch": "amd64", "url": strings.TrimSuffix(registryURL, "/registry.json") + "/plugin.zip", "sha256": fmt.Sprintf("%x", sum)}}}}}}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(data)
 	}))
@@ -178,7 +178,7 @@ func TestRealCPAStoreInstallWithoutPluginParameters(t *testing.T) {
 		return s
 	}
 	s := read()
-	if s.Version != "0.2.3" || s.Mode != "force" || s.Guard || !s.Probe || !s.Continuous || !s.Parallel || !s.Selection.Persistent {
+	if s.Version != "0.2.4" || s.Mode != "force" || s.Guard || !s.Probe || !s.Continuous || !s.Parallel || !s.Selection.Persistent {
 		t.Fatalf("fresh install needs manual parameters: %+v", s)
 	}
 	claims, _ := json.Marshal(map[string]any{"email": "fresh@example.test", "https://api.openai.com/auth": map[string]string{"chatgpt_plan_type": "team"}})
@@ -202,6 +202,7 @@ func TestRealCPAStoreInstallWithoutPluginParameters(t *testing.T) {
 	}
 	upstream.mu.Lock()
 	upstream.responseModel = "gpt-6-astra"
+	upstream.state = syntheticToken(12)
 	upstream.mu.Unlock()
 	await(t, func() bool { return read().Valid == 1 })
 	for len(upstream.received) > 0 {
@@ -212,7 +213,7 @@ func TestRealCPAStoreInstallWithoutPluginParameters(t *testing.T) {
 		t.Fatalf("cached request: %d %s", code, raw)
 	}
 	captured := <-upstream.received
-	if len(captured.Headers.Get("X-Codex-Turn-State")) != 292 {
+	if len(captured.Headers.Get("X-Codex-Turn-State")) != 332 {
 		t.Fatal("state not forwarded without manual mapping")
 	}
 	path := filepath.Join(h.root, "plugins", ".codex-turn-state-manager", "current.json.selection.json")
@@ -227,5 +228,13 @@ func TestRealCPAStoreInstallWithoutPluginParameters(t *testing.T) {
 			t.Fatalf("manual parameter injected: %s", field)
 		}
 	}
-	t.Log("store install, UI selection, credential proxy, passthrough and cached forwarding passed without plugin parameters")
+	// Observe two scheduler intervals; cache age/expiry boundaries are covered with fake clocks in unit tests.
+	timer := time.NewTimer(11 * time.Second)
+	defer timer.Stop()
+	select {
+	case <-upstream.received:
+		t.Fatal("fresh 332 triggered another automatic upstream request")
+	case <-timer.C:
+	}
+	t.Log("store install, UI selection, credential proxy, passthrough, cached 332 forwarding and acquisition pause passed without plugin parameters")
 }

@@ -1,6 +1,6 @@
 # CPA Codex Turn State Manager
 
-Native CPA plugin **0.2.3**. Acquire, privately retain and reuse Codex `X-Codex-Turn-State`, preferring **292** and using **332** as fallback. [中文安装说明](README_CN.md).
+Native CPA plugin **0.2.4**. Acquire, privately retain and reuse Codex `X-Codex-Turn-State`, preferring **292** and using **332** as fallback. [中文安装说明](README_CN.md).
 
 **Requests pass through when no valid cached state exists.** Background acquisition continues independently and successful states are used automatically. Installation requires no plugin-specific YAML or manually entered state values.
 
@@ -25,14 +25,14 @@ Alternatively, download the Linux amd64 ZIP from [Releases](https://github.com/j
 
 ## Defaults and behavior
 
-- Prefer accepted 292; use 332 immediately while continuing to look for 292. Later 332 cannot overwrite valid 292.
+- Prefer accepted 292 when available. Either accepted 292 or 332 pauses acquisition until its refresh window. Later 332 cannot overwrite valid 292.
 - No-cache business requests pass through without waiting for acquisition. The legacy `block_without_state` option defaults to false.
 - Check acquisition every five seconds; ordinary retries are at least five seconds apart. Different credential/model pairs run independently, at most one attempt per pair. Manual duplicates return immediately without a pending queue.
 - Each acquisition reads the selected credential's current proxy. No separate pool, automatic proxy switching or direct fallback. Missing or invalid credential proxies fail that acquisition.
 - Acquire with medium reasoning. Continuous mode has no total/hourly cap and consumes account quota. Authentication/rate/quota errors retain backoff; slow attempts are not overlapped for the same pair.
 - Cache only after terminal success, host completion, exact reported/executed model agreement, structural validation and timestamp checks.
 - Prepare refresh approximately 55 minutes after issuance; use a value for at most 60 minutes from issuance. Keep active and standby slots, each preferring 292. Duplicates never renew age or provenance.
-- Capture accepted new business-response states as active/standby, showing Business observation provenance. A newer valid 292 standby can reduce extra acquisition.
+- Capture accepted new business-response states as active/standby, showing Business observation provenance. A newer valid 292 or 332 standby can reduce extra acquisition.
 - Scope capture, acquisition and reuse to checked credentials, account identities and exact executed models. Deselecting cancels affected attempts and rejects late candidates without deleting archives.
 - Show credential email/plan and separate requested, executed and reported models. Plan labels do not determine state priority. Model names come from response fields, never length or generated answers; absent evidence remains unknown.
 - An explicit business model mismatch invalidates only the value actually used by that attempt and can promote verified standby. Streamed content already sent cannot be retracted.
@@ -77,7 +77,7 @@ CPA_PLAYWRIGHT_MODULE=/path/to/playwright node scripts/test-selection-ui.cjs
 CPA_PLAYWRIGHT_MODULE=/path/to/playwright node scripts/test-login-ui.cjs
 ```
 
-CI runs tests and browser checks, builds the Linux amd64 native archive, verifies checksums and publishes a GitHub Release. Historical verification documents describe their named versions and may have different defaults.
+Releases are built and verified locally as Linux amd64 archives, then uploaded with checksums. Pushing a tag does not trigger a build; the optional workflow is manual only. Historical verification documents describe their named versions and may have different defaults.
 
 `cmd/livecheck` and `cmd/hunt292` are opt-in development tools, not the automatic runtime or part of normal tests. They require separately supplied private credentials/proxies and never run merely from installation.
 

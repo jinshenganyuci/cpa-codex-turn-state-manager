@@ -10,7 +10,7 @@ const credential = 'credential-a';
 let revision = 0, models = [], accounts = [], saves = 0, probeCalls = 0;
 const modelOptions = ['gpt-6-astra', 'gpt-5.6-sol', 'gpt-5.6-luna'];
 function status() {
-  return {version: '0.2.3', probe_parallel: true, prefer_292: true, require_model_match: true, standby_enabled: true, history_persistent: true,
+  return {version: '0.2.4', probe_parallel: true, prefer_292: true, require_model_match: true, standby_enabled: true, history_persistent: true,
  block_without_state: false, blocking_active: false, mode: 'force', probe_enabled: true, continuous: true, retry_seconds: 5,
     reasoning_effort: 'medium', proxy_mode: 'credential', dry_run: false, valid_count: 0,
     selection: {required: true, persistent: true, revision, models, model_options: modelOptions,
@@ -58,7 +58,7 @@ const server = http.createServer((request, response) => {
     assert.match(await page.locator('#history').textContent(), /demo@example.test.*Plus.*gpt-6-astra.*gpt-5.6-luna/);
     assert.equal(await page.locator('#history .model-different').count(), 1);
     assert.equal(await page.getByRole('columnheader', {name: '实际响应模型', exact: true}).count(), 1);
-    assert.match(await page.locator('#priorityStatus').textContent(), /292 首选.*模型一致才入库/);
+    assert.match(await page.locator('#priorityStatus').textContent(), /292 首选.*有效 292 \/ 332 均暂停探测.*模型一致才入库/);
     assert.match(await page.locator('#accounts').textContent(), /292 · 业务观测/);
     assert.match(await page.locator('#history').textContent(), /业务观测 · 已收为备用/);
     assert.match(await page.locator('#history').textContent(), /模型不一致，未入库/);

@@ -171,7 +171,7 @@ async function refresh() {
     $('modeLabel').textContent = modeNames[data.mode] + (data.dry_run ? ' · 模拟' : '');
     $('valid').textContent = data.valid_count;
     $('guardStatus').textContent = data.blocking_active ? '无有效 292 / 332 时拦截已勾选请求（503）；后台继续获取，成功后自动放行。' : data.block_without_state ? '拦截已配置；切回强制模式并关闭模拟后生效。' : '无有效 292 / 332 时正常放行；后台继续获取，成功后自动使用缓存。';
-    $('priorityStatus').textContent = (data.prefer_292 ? '292 首选 · 332 保底并继续寻找 292' : '使用已验收的状态值')
+    $('priorityStatus').textContent = (data.prefer_292 ? '292 首选 · 有效 292 / 332 均暂停探测' : '使用已验收的状态值')
       + (data.require_model_match ? ' · 模型一致才入库' : '') + (data.standby_enabled ? ' · 提前准备备用值' : '');
     $('historyPersistence').textContent = data.persistence_error ? '保存失败：'+data.persistence_error : data.history_persistent ? '历史已启用持久化 · 每 5 秒刷新' : '每 5 秒刷新 · 最多 200 条';
     const history = data.history || [];

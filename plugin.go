@@ -20,7 +20,7 @@ import (
 
 const (
 	pluginName        = "codex-turn-state-manager"
-	pluginVersion     = "0.2.3"
+	pluginVersion     = "0.2.4"
 	pluginSchema      = uint32(4)
 	pluginABIVersion  = uint32(1)
 	defaultMaxBytes   = 4096
@@ -318,7 +318,7 @@ func pluginRegistration() registration {
 				{Name: "auto_update", Type: "boolean", Description: "Promote a newer normal Fernet state after a successful request."},
 				{Name: "mode", Type: "string", Description: "force (default), observe, or replace_only. Missing cache passes through by default."},
 				{Name: "require_model_match", Type: "boolean", Description: "Require matching reported and executed models before admitting state (default true)."},
-				{Name: "prefer_292", Type: "boolean", Description: "Prefer 292; use 332 while continuing acquisition (default true)."},
+				{Name: "prefer_292", Type: "boolean", Description: "Prefer 292 when available; either accepted length pauses acquisition until refresh (default true)."},
 				{Name: "standby_enabled", Type: "boolean", Description: "Keep a successor for expiry handoff (default true)."},
 				{Name: "runtime_file", Type: "string", Description: "Private persistent request history and acquisition backoff."},
 				{Name: "block_without_state", Type: "boolean", Description: "Optional legacy guard, disabled by default. In force mode, reject selected requests without valid cached state; disabled in dry run."},

@@ -9,7 +9,7 @@ const prefix = '/v0/resource/plugins/codex-turn-state-manager/';
 const ownKey = 'cpa-turn-state-manager.auth.v1';
 const panelKey = 'cli-proxy-auth';
 const validKey = 'local-ui-login-test';
-const fixture = {version: '0.2.3', mode: 'force', dry_run: false, blocking_active: true, valid_count: 0,
+const fixture = {version: '0.2.4', mode: 'force', dry_run: false, blocking_active: true, valid_count: 0,
   entries: [], history: [], proxy_mode: 'credential', reasoning_effort: 'medium', continuous: true, retry_seconds: 5,
   selection: {required: true, persistent: true, revision: 1, models: [], model_options: [], accounts: []}};
 let serviceStatus = 200, requestCount = 0;

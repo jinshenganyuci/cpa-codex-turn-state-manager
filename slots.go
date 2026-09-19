@@ -127,13 +127,9 @@ func (state *runtimeState) acquisitionDueLocked(key string) time.Time {
 	if state.refreshRequests[key] != "" || !state.usableSlotLocked(key, active) {
 		return time.Time{}
 	}
-	if enabledByDefault(state.config.Prefer292) && len(active.Value) == 332 {
-		return time.Time{}
-	}
 	due := active.IssuedAt.Add(turnStateTTL - time.Duration(state.config.Probe.RefreshBeforeSeconds)*time.Second)
 	standby := state.standby[key]
-	if enabledByDefault(state.config.StandbyEnabled) && state.usableSlotLocked(key, standby) && standby.IssuedAt.After(active.IssuedAt) &&
-		(!enabledByDefault(state.config.Prefer292) || len(standby.Value) == 292) {
+	if enabledByDefault(state.config.StandbyEnabled) && state.usableSlotLocked(key, standby) && standby.IssuedAt.After(active.IssuedAt) {
 		due = standby.IssuedAt.Add(turnStateTTL - time.Duration(state.config.Probe.RefreshBeforeSeconds)*time.Second)
 	}
 	return due

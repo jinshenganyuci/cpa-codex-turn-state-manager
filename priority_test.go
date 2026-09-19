@@ -38,8 +38,8 @@ func Test292PriorityAndStandbyHandoff(t *testing.T) {
 	if got := state.acceptStateLocked(key, fallback); got != "active" {
 		t.Fatal(got)
 	}
-	if !state.acquisitionDueLocked(key).IsZero() {
-		t.Fatal("332 stopped the search for 292")
+	if !state.acquisitionDueLocked(key).Equal(fallback.IssuedAt.Add(55 * time.Minute)) {
+		t.Fatal("fresh 332 did not pause acquisition until refresh")
 	}
 	preferred := acceptedState(t, state, 10, now.Add(-5*time.Minute), "business")
 	if got := state.acceptStateLocked(key, preferred); got != "upgraded_292" {
@@ -152,7 +152,7 @@ func TestLateMismatchDoesNotInvalidateNewCache(t *testing.T) {
 	}
 }
 
-func TestProbeModelAcceptanceAnd292Search(t *testing.T) {
+func TestProbeModelAcceptancePausesOn332UntilRefresh(t *testing.T) {
 	state := priorityRuntime(t)
 	key := stateKey("auth-a", "gpt-6-astra")
 	now := state.now()
@@ -180,8 +180,13 @@ func TestProbeModelAcceptanceAnd292Search(t *testing.T) {
 	}
 	now = now.Add(5 * time.Second)
 	state.ensureProbe("auth-a", "gpt-6-astra")
+	if calls != 2 || len(state.current[key].Value) != 332 {
+		t.Fatal("fresh 332 triggered another acquisition")
+	}
+	now = state.current[key].IssuedAt.Add(55 * time.Minute)
+	state.ensureProbe("auth-a", "gpt-6-astra")
 	if calls != 3 || len(state.current[key].Value) != 292 {
-		t.Fatal("search did not prefer 292")
+		t.Fatal("scheduled refresh failed to accept and prefer 292")
 	}
 	now = now.Add(5 * time.Second)
 	state.ensureProbe("auth-a", "gpt-6-astra")
@@ -253,5 +258,45 @@ func TestLegacyStateCannotInventModelEvidence(t *testing.T) {
 		if modelConsistent("gpt-6-astra", model) {
 			t.Fatal("a partial name passed exact model admission")
 		}
+	}
+}
+
+func TestFresh332StandbyPostponesAcquisitionAndSurvivesActiveExpiry(t *testing.T) {
+	for _, activeBlocks := range []int{10, 12} {
+		t.Run(map[int]string{10: "active292", 12: "active332"}[activeBlocks], func(t *testing.T) {
+			state := priorityRuntime(t)
+			key := stateKey("auth-a", "gpt-6-astra")
+			now := state.now()
+			state.now = func() time.Time { return now }
+			active := acceptedState(t, state, activeBlocks, now.Add(-54*time.Minute), "probe")
+			state.acceptStateLocked(key, active)
+			standby := acceptedState(t, state, 12, now, "business")
+			state.acceptStateLocked(key, standby)
+			calls := 0
+			state.fetch = func(context.Context, probeAuth, string, *proxyEndpoint, proxyEndpoint) (string, string, string) {
+				calls++
+				return makeFernetToken(t, now, 12), "ok", "gpt-6-astra"
+			}
+			now = active.IssuedAt.Add(55 * time.Minute)
+			state.ensureProbe("auth-a", "gpt-6-astra")
+			if calls != 0 || !state.nextRefreshLocked(key).Equal(standby.IssuedAt.Add(55*time.Minute)) {
+				t.Fatal("valid 332 standby did not postpone refresh")
+			}
+			now = active.IssuedAt.Add(time.Hour)
+			state.ensureProbe("auth-a", "gpt-6-astra")
+			if calls != 0 || state.current[key].Value != standby.Value {
+				t.Fatal("active expiry failed to use 332 standby without probing")
+			}
+			now = standby.IssuedAt.Add(55 * time.Minute)
+			state.ensureProbe("auth-a", "gpt-6-astra")
+			if calls != 1 {
+				t.Fatal("332 standby did not refresh near expiry")
+			}
+			now = now.Add(5 * time.Second)
+			state.ensureProbe("auth-a", "gpt-6-astra")
+			if calls != 1 {
+				t.Fatal("successful 332 refresh triggered another acquisition")
+			}
+		})
 	}
 }
