@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-const defaultProbeRetrySeconds = 15
+const defaultProbeRetrySeconds = 7
 
 type probeConfig struct {
 	// Decode retired pool options for old configurations; normalization discards them.
@@ -60,7 +60,7 @@ func normalizeProbe(cfg *probeConfig) error {
 		cfg.RetrySeconds = defaultProbeRetrySeconds
 	}
 	if cfg.RefreshBeforeSeconds == 0 {
-		cfg.RefreshBeforeSeconds = 300
+		cfg.RefreshBeforeSeconds = defaultRefreshBeforeSeconds
 	}
 	if cfg.MaxAttempts == 0 {
 		cfg.MaxAttempts = 1
@@ -219,6 +219,7 @@ func (state *runtimeState) ensureProbe(authID, model string) {
 
 func (state *runtimeState) runProbe(task *probeTask) {
 	defer state.probeWG.Done()
+	defer state.wakeBackground()
 	defer state.flushPersistence()
 	defer task.cancel()
 	authID, model, key := task.authID, task.model, task.key

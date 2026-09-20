@@ -20,7 +20,7 @@ import (
 
 const (
 	pluginName        = "codex-turn-state-manager"
-	pluginVersion     = "0.3.2"
+	pluginVersion     = "0.3.3"
 	pluginSchema      = uint32(4)
 	pluginABIVersion  = uint32(1)
 	defaultMaxBytes   = 4096
@@ -128,6 +128,9 @@ type runtimeState struct {
 	mu               sync.Mutex
 	persistMu        sync.Mutex
 	selectionMu      sync.Mutex
+	scheduleMu       sync.Mutex
+	schedulePath     string
+	schedule         acquisitionSchedule
 	selection        selectionPolicy
 	now              func() time.Time
 	accepting        bool
@@ -463,6 +466,20 @@ func (state *runtimeState) configure(raw []byte) error {
 	if errSelection != nil {
 		return errSelection
 	}
+	state.scheduleMu.Lock()
+	defer state.scheduleMu.Unlock()
+	schedulePath := cfg.StateFile + ".schedule.json"
+	for _, other := range []string{cfg.RuntimeFile, cfg.SelectionFile, cfg.ProxyPoolFile} {
+		if filepath.Clean(other) == filepath.Clean(schedulePath) {
+			return errors.New("schedule_file must differ from other private files")
+		}
+	}
+	schedule, errSchedule := loadAcquisitionSchedule(schedulePath, cfg.Probe)
+	if errSchedule != nil {
+		return errSchedule
+	}
+	cfg.Probe.RefreshBeforeSeconds = schedule.RefreshBeforeSeconds
+	cfg.Probe.RetrySeconds = schedule.RetrySeconds
 	state.stopBackground()
 	if err := state.pool.load(cfg.ProxyPoolFile); err != nil {
 		return err
@@ -492,6 +509,7 @@ func (state *runtimeState) configure(raw []byte) error {
 		}
 	}
 	state.config = cfg
+	state.schedule, state.schedulePath = schedule, schedulePath
 	state.selection = selection
 	state.current = current
 	state.standby = standby

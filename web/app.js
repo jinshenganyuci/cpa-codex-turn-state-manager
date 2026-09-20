@@ -3,6 +3,8 @@ const base = '/v0/management/codex-turn-state-manager';
 const $ = id => document.getElementById(id);
 let poolData = {enabled:false, revision:0, entries:[]}, poolSaving = false, editingProxy = '', proxyEditRevision = 0;
 let key = '', keySource = '', busy = false, saving = false, selectionDirty = false, selectionRevision = 0;
+let scheduleRevision = 0, scheduleDirty = false, scheduleSaving = false, scheduleReady = false;
+let scheduleDefaults = {advance:30, retry:7};
 const loginStorageKey = 'cpa-turn-state-manager.auth.v1';
 const panelStorageKey = 'cli-proxy-auth';
 const storagePrefix = 'enc::v1::';
@@ -51,6 +53,9 @@ function clearLogin(forget = true) {
     try { localStorage.removeItem(loginStorageKey); } catch { /* Storage may be disabled. */ }
   }
   key = ''; keySource = ''; selectionDirty = false; selectionRevision = 0;
+  scheduleReady = false; scheduleDirty = false; scheduleRevision = 0;
+  for (const id of ['advanceMinutes','retrySeconds','saveSchedule','resetSchedule','reloadSchedule']) $(id).disabled = true;
+  $('scheduleNote').textContent = '等待连接。';
   $('key').value = ''; $('modelChoices').replaceChildren(); $('credentialChoices').replaceChildren();
   $('accounts').replaceChildren(); $('history').replaceChildren(); $('proxyRows').replaceChildren();
   $('proxyForm').reset(); $('proxyForm').hidden = true; $('poolSummary').textContent = '等待连接'; $('togglePool').disabled = true; $('addProxy').disabled = true;
@@ -76,6 +81,9 @@ async function restoreLogin() {
 }
 const modeNames = {observe: '只观察', replace_only: '仅替换 312', force: '优先使用有效缓存'};
 const selectionErrors = {
+  schedule_changed_reload: '时间设置已被其他窗口修改，请点击“重新载入”后再保存。',
+  invalid_schedule: '请输入 1–59 的整数分钟和 1–3600 的整数秒。',
+  schedule_save_failed: '保存失败，当前设置未改变，请检查服务器保存目录。',
   selection_changed_reload_before_saving: '其他窗口已修改选择，请重新载入后再保存。',
   selection_persistence_not_enabled: '当前实例没有启用勾选范围的持久保存。',
   credential_not_available: '凭据已停用或移除，请重新载入选择。',
@@ -193,6 +201,7 @@ async function refresh() {
     if (document.activeElement !== $('mode')) $('mode').value = data.mode;
     if (document.activeElement !== $('dry')) $('dry').checked = data.dry_run;
     renderSelection(data.selection);
+    renderSchedule(data.schedule);
     renderPool(data.proxy_pool || {enabled:false,revision:0,entries:[]});
     const profiles = new Map((data.selection?.accounts || []).map(account => [account.account, account]));
     $('accounts').replaceChildren();
@@ -352,4 +361,49 @@ $('proxyForm').addEventListener('submit',async event=>{
   await refresh();$('poolNotice').textContent='代理已保存。'+(poolData.enabled?'后续获取会按池中可用出口轮询。':'可以先测试连通性，再点击“启用代理池”。');
  }catch(err){$('poolNotice').textContent=err.message;}
  finally{poolSaving=false;$('saveProxy').disabled=false;renderPool(poolData);}
+});
+
+function renderSchedule(data) {
+  if (!data || scheduleDirty || scheduleSaving || data.revision < scheduleRevision) return;
+  scheduleReady = true; scheduleRevision = data.revision;
+  scheduleDefaults = {advance:data.default_advance_minutes, retry:data.default_retry_seconds};
+  $('advanceMinutes').value = data.advance_minutes;
+  $('retrySeconds').value = data.retry_seconds;
+  $('advanceMinutes').disabled = false; $('retrySeconds').disabled = false;
+  $('saveSchedule').disabled = true; $('resetSchedule').disabled = false; $('reloadSchedule').disabled = false;
+  $('scheduleNote').textContent = '当前：到期前 ' + data.advance_minutes + ' 分钟获取，重试间隔 ' + data.retry_seconds + ' 秒。设置会保存，预计刷新时间随之更新。';
+}
+for (const id of ['advanceMinutes','retrySeconds']) $(id).addEventListener('input', () => {
+  scheduleDirty = true; $('saveSchedule').disabled = !scheduleReady || scheduleSaving;
+  $('scheduleNote').textContent = '有未保存的时间设置，点击“保存设置”后生效。';
+});
+async function saveScheduleValues(advance, retry) {
+  if (scheduleSaving || !scheduleReady) return;
+  if (!Number.isInteger(advance) || advance < 1 || advance > 59 || !Number.isInteger(retry) || retry < 1 || retry > 3600) {
+    $('scheduleNote').textContent = '请输入 1–59 的整数分钟和 1–3600 的整数秒。'; return;
+  }
+  scheduleSaving = true;
+  for (const id of ['advanceMinutes','retrySeconds','saveSchedule','resetSchedule','reloadSchedule']) $(id).disabled = true;
+  let error = '', savedSchedule = null;
+  try {
+    const data = await api('/schedule', {revision:scheduleRevision, advance_minutes:advance, retry_seconds:retry});
+    scheduleDirty = false; scheduleRevision = data.schedule.revision; savedSchedule = data.schedule;
+  } catch (err) {
+    error = err.message;
+  } finally {
+    scheduleSaving = false;
+    for (const id of ['advanceMinutes','retrySeconds','resetSchedule','reloadSchedule']) $(id).disabled = !scheduleReady;
+    $('saveSchedule').disabled = !scheduleReady || !scheduleDirty;
+  }
+  if (savedSchedule && scheduleReady) renderSchedule(savedSchedule);
+  await refresh();
+  if (error) $('scheduleNote').textContent = error;
+}
+$('scheduleForm').addEventListener('submit', event => {
+  event.preventDefault(); saveScheduleValues(Number($('advanceMinutes').value), Number($('retrySeconds').value));
+});
+$('resetSchedule').addEventListener('click', () => saveScheduleValues(scheduleDefaults.advance, scheduleDefaults.retry));
+$('reloadSchedule').addEventListener('click', async () => {
+  if (scheduleSaving) return;
+  scheduleDirty = false; scheduleRevision = 0; await refresh();
 });

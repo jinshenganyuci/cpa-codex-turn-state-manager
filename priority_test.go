@@ -38,7 +38,7 @@ func Test292PriorityAndStandbyHandoff(t *testing.T) {
 	if got := state.acceptStateLocked(key, fallback); got != "active" {
 		t.Fatal(got)
 	}
-	if !state.acquisitionDueLocked(key).Equal(fallback.IssuedAt.Add(55 * time.Minute)) {
+	if !state.acquisitionDueLocked(key).Equal(fallback.IssuedAt.Add(30 * time.Minute)) {
 		t.Fatal("fresh 332 did not pause acquisition until refresh")
 	}
 	preferred := acceptedState(t, state, 10, now.Add(-5*time.Minute), "business")
@@ -112,10 +112,10 @@ func TestBusiness292RecoveryNeedsSuccessAndMatchingModel(t *testing.T) {
 					t.Fatalf("business standby not recorded: %+v", row)
 				}
 				original := state.standby[key]
-				now := active.IssuedAt.Add(55 * time.Minute)
+				now := active.IssuedAt.Add(30 * time.Minute)
 				state.now = func() time.Time { return now }
 				state.ensureProbe("auth-a", "gpt-6-astra")
-				if calls != 0 || !state.nextRefreshLocked(key).Equal(original.IssuedAt.Add(55*time.Minute)) {
+				if calls != 0 || !state.nextRefreshLocked(key).Equal(original.IssuedAt.Add(30*time.Minute)) {
 					t.Fatal("business standby failed to avoid the old active refresh")
 				}
 				begin(t, state, "echo", "auth-a", "gpt-6-astra", "")
@@ -183,7 +183,7 @@ func TestProbeModelAcceptancePausesOn332UntilRefresh(t *testing.T) {
 	if calls != 2 || len(state.current[key].Value) != 332 {
 		t.Fatal("fresh 332 triggered another acquisition")
 	}
-	now = state.current[key].IssuedAt.Add(55 * time.Minute)
+	now = state.current[key].IssuedAt.Add(30 * time.Minute)
 	state.ensureProbe("auth-a", "gpt-6-astra")
 	if calls != 3 || len(state.current[key].Value) != 292 {
 		t.Fatal("scheduled refresh failed to accept and prefer 292")
@@ -284,7 +284,7 @@ func TestFresh332StandbyPostponesAcquisitionAndSurvivesActiveExpiry(t *testing.T
 			}
 			now = active.IssuedAt.Add(55 * time.Minute)
 			state.ensureProbe("auth-a", "gpt-6-astra")
-			if calls != 0 || !state.nextRefreshLocked(key).Equal(standby.IssuedAt.Add(55*time.Minute)) {
+			if calls != 0 || !state.nextRefreshLocked(key).Equal(standby.IssuedAt.Add(30*time.Minute)) {
 				t.Fatal("valid 332 standby did not postpone refresh")
 			}
 			now = active.IssuedAt.Add(time.Hour)
@@ -292,7 +292,7 @@ func TestFresh332StandbyPostponesAcquisitionAndSurvivesActiveExpiry(t *testing.T
 			if calls != 0 || state.current[key].Value != standby.Value {
 				t.Fatal("active expiry failed to use 332 standby without probing")
 			}
-			now = standby.IssuedAt.Add(55 * time.Minute)
+			now = standby.IssuedAt.Add(30 * time.Minute)
 			state.ensureProbe("auth-a", "gpt-6-astra")
 			if calls != 1 {
 				t.Fatal("332 standby did not refresh near expiry")

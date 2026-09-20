@@ -1,6 +1,6 @@
 # CPA Codex Turn State Manager
 
-Native CPA plugin **0.3.2**. Acquire, privately retain and reuse Codex `X-Codex-Turn-State`, preferring **292** and using **332** as fallback. [中文安装说明](README_CN.md).
+Native CPA plugin **0.3.3**. Acquire, privately retain and reuse Codex `X-Codex-Turn-State`, preferring **292** and using **332** as fallback. [中文安装说明](README_CN.md).
 
 **Requests pass through when no valid cached state exists.** Background acquisition continues independently and successful states are used automatically. Installation requires no plugin-specific YAML or manually entered state values.
 
@@ -33,11 +33,11 @@ Addresses are retained per request with history. Old records, closed connections
 
 - Prefer accepted 292 when available. Either accepted 292 or 332 pauses acquisition until its refresh window. Later 332 cannot overwrite valid 292.
 - No-cache business requests pass through without waiting for acquisition. The legacy `block_without_state` option defaults to false.
-- Check acquisition every five seconds; ordinary retries are at least fifteen seconds apart. Different credential/model pairs run independently, at most one attempt per pair. Manual duplicates return immediately without a pending queue.
+- Ordinary retries default to seven seconds between starts. The scheduler observes exact retry deadlines, with credential discovery at most five seconds apart. Different credential/model pairs run independently, at most one attempt per pair. Manual duplicates return immediately without a pending queue.
 - Business requests keep the credential proxy. Acquisition reads it by default; enabling the dashboard proxy pool selects only enabled, available pool exits. Empty/cooling pools never fall back to a credential or direct connection.
 - Acquire with medium reasoning. Continuous mode has no total/hourly cap and consumes account quota. Authentication/rate/quota errors retain backoff; slow attempts are not overlapped for the same pair.
 - Cache only after terminal success, host completion, exact reported/executed model agreement, structural validation and timestamp checks.
-- Prepare refresh approximately 55 minutes after issuance; use a value for at most 60 minutes from issuance. Keep active and standby slots, each preferring 292. Duplicates never renew age or provenance.
+- Prepare candidates 30 minutes before expiry by default; use a value for at most 60 minutes from issuance. Keep active and standby slots, each preferring 292. Duplicates never renew age or provenance.
 - Capture accepted new business-response states as active/standby, showing Business observation provenance. A newer valid 292 or 332 standby can reduce extra acquisition.
 - Scope capture, acquisition and reuse to checked credentials, account identities and exact executed models. Deselecting cancels affected attempts and rejects late candidates without deleting archives.
 - Show credential email/plan and separate requested, executed and reported models. Plan labels do not determine state priority. Model names come from response fields, never length or generated answers; absent evidence remains unknown.
@@ -58,6 +58,12 @@ Connection tests send an unauthenticated HTTPS GET to the upstream Responses pat
 Pool settings and health persist in `state_file + ".proxies.json"`, with atomic 0600 writes on Unix. Status returns endpoint addresses without userinfo. Blank URLs on edit preserve saved credentials. Failed writes keep the previous configuration; revision checks reject stale edits. Already-started requests may finish, but results for deleted/changed endpoints are discarded.
 
 The detail table and recent-request view show only saved selections; all eligible credentials remain in the selection controls. Historical records and cached state are retained privately after deselection.
+
+## Acquisition timing
+
+The dashboard's timing form saves both the advance window (1–59 whole minutes before expiry, default 30) and the retry interval (1–3600 whole seconds, default 7). Save applies immediately and recalculates expected refresh times; Restore defaults saves 30 minutes / 7 seconds. Valid newer standby states can postpone acquisition to their own refresh window. In-flight requests do not overlap for one pair, and authentication/quota backoff remains in force.
+
+Settings persist in `state_file + .schedule.json` with private permissions and revision checks. Saved UI values override `probe.refresh_before_seconds` and `probe.retry_seconds` from YAML after restart or upgrade. Without saved UI values, explicit YAML settings are preserved; otherwise the defaults apply. Failed saves leave the active settings unchanged. Page data still refreshes every five seconds, independently of probe requests.
 
 ## Storage and upgrades
 

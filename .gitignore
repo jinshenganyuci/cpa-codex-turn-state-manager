@@ -19,3 +19,5 @@ proxy-*.json
 *.runtime.json
 .env
 *.proxies.json
+
+*.schedule.json

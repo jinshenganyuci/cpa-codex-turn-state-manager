@@ -10,8 +10,8 @@ const credential = 'credential-a';
 let revision = 0, models = [], accounts = [], saves = 0, probeCalls = 0;
 const modelOptions = ['gpt-6-astra', 'gpt-5.6-sol', 'gpt-5.6-luna'];
 function status() {
-  return {version: '0.3.2', probe_parallel: true, prefer_292: true, require_model_match: true, standby_enabled: true, history_persistent: true,
- block_without_state: false, blocking_active: false, mode: 'force', probe_enabled: true, continuous: true, retry_seconds: 15,
+  return {version: '0.3.3', probe_parallel: true, prefer_292: true, require_model_match: true, standby_enabled: true, history_persistent: true,
+ block_without_state: false, blocking_active: false, mode: 'force', probe_enabled: true, continuous: true, retry_seconds: 7,
     reasoning_effort: 'medium', proxy_mode: 'credential', dry_run: false, valid_count: 0,
     selection: {required: true, persistent: true, revision, models, model_options: modelOptions,
       accounts: [{account: credential, label: '演示凭据 A', email: 'demo@example.test', plan_type: 'plus', disabled: false, selected: accounts.includes(credential)}]},
@@ -80,7 +80,7 @@ const server = http.createServer((request, response) => {
     assert.equal(await exitCell.locator('img,script').count(),0);
     await page.setViewportSize({width:390,height:844});
     assert.equal(await exitCell.evaluate(el=>el.querySelector('small').getBoundingClientRect().top >= el.querySelector('div').getBoundingClientRect().bottom),true);
-    await exitCell.screenshot({path:path.join(root,'dist','exit-ip-layout-0.3.2.png')});
+    await exitCell.screenshot({path:path.join(root,'dist','exit-ip-layout-0.3.3.png')});
     await page.setViewportSize({width:1440,height:1100});
 
     assert.equal(await page.getByRole('heading',{name:'代理池健康',exact:true}).count(),0);

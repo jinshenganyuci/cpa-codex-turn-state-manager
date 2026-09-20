@@ -57,12 +57,12 @@ func TestContinuousDiscoversAndRetriesUntilEitherTarget(t *testing.T) {
 				if calls != index+1 {
 					t.Fatal("retry interval ignored")
 				}
-				for _, advance := range []time.Duration{5 * time.Second, 9 * time.Second} {
+				for _, advance := range []time.Duration{5 * time.Second, time.Second} {
 					now = now.Add(advance)
 					state.refreshDue(context.Background())
 					state.probeWG.Wait()
 					if calls != index+1 {
-						t.Fatal("acquisition retried before the 15-second interval")
+						t.Fatal("acquisition retried before the 7-second interval")
 					}
 				}
 				now = now.Add(time.Second)
@@ -76,7 +76,7 @@ func TestContinuousDiscoversAndRetriesUntilEitherTarget(t *testing.T) {
 			if calls != 8 {
 				t.Fatal("acquisition continued despite a fresh target")
 			}
-			now = state.current[key].IssuedAt.Add(55 * time.Minute)
+			now = state.current[key].IssuedAt.Add(30 * time.Minute)
 			state.refreshDue(context.Background())
 			state.probeWG.Wait()
 			if calls != 9 {
@@ -123,7 +123,7 @@ func TestContinuousKeepsRateLimitBackoff(t *testing.T) {
 	}
 	state.refreshDue(context.Background())
 	state.probeWG.Wait()
-	now = now.Add(15 * time.Second)
+	now = now.Add(7 * time.Second)
 	state.refreshDue(context.Background())
 	state.probeWG.Wait()
 	if calls != 1 {

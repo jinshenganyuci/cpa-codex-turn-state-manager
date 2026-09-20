@@ -277,7 +277,7 @@ func rawRequest(raw []byte) managementRequest {
 }
 func managementRoutes() any {
 	routes := []map[string]string{{"Method": "GET", "Path": apiBase + "/status"}}
-	for _, path := range []string{"probe", "cancel", "mode", "selection", "proxy-pool/mode", "proxy-pool/save", "proxy-pool/delete", "proxy-pool/reset", "proxy-pool/test"} {
+	for _, path := range []string{"probe", "cancel", "mode", "selection", "schedule", "proxy-pool/mode", "proxy-pool/save", "proxy-pool/delete", "proxy-pool/reset", "proxy-pool/test"} {
 		routes = append(routes, map[string]string{"Method": "POST", "Path": apiBase + "/" + path})
 	}
 	return map[string]any{"routes": routes, "resources": []map[string]string{{"Path": "/status", "Menu": "回合状态", "Description": "观察、探测并保存 Codex 回合状态。"}, {"Path": "/app.js"}, {"Path": "/app.css"}}}
@@ -325,6 +325,9 @@ func (state *runtimeState) management(req managementRequest) ([]byte, error) {
 	}
 	if strings.HasPrefix(req.Path, apiBase+"/proxy-pool/") {
 		return state.poolManagement(strings.TrimPrefix(req.Path, apiBase+"/proxy-pool/"), req.Body)
+	}
+	if req.Path == apiBase+"/schedule" {
+		return state.updateSchedule(req.Body)
 	}
 	if req.Path == apiBase+"/selection" {
 		return state.updateSelection(req.Body)
@@ -484,5 +487,5 @@ func (state *runtimeState) statusResponse() ([]byte, error) {
 			}
 		}
 	}
-	return managementJSON(200, map[string]any{"selection": state.selectionViewLocked(listing), "version": pluginVersion, "prefer_292": enabledByDefault(state.config.Prefer292), "require_model_match": enabledByDefault(state.config.RequireModelMatch), "standby_enabled": enabledByDefault(state.config.StandbyEnabled), "history_persistent": state.config.RuntimeFile != "", "persistence_error": state.persistenceError, "mode": state.config.Mode, "dry_run": state.config.DryRun, "block_without_state": state.config.BlockWithoutState, "blocking_active": state.blockWithoutStateLocked(), "probe_parallel": true, "probe_enabled": state.config.Probe.Enabled, "continuous": state.config.Probe.Enabled && state.config.Probe.Continuous, "retry_seconds": state.config.Probe.RetrySeconds, "background_refresh": state.config.Probe.Enabled && (state.config.Probe.Continuous || enabledByDefault(state.config.Probe.BackgroundRefresh)), "refresh_before_seconds": state.config.Probe.RefreshBeforeSeconds, "proxy_pool": poolView, "proxy_mode": proxyMode, "reasoning_effort": state.config.Probe.ReasoningEffort, "max_per_hour": limit, "valid_count": validCount, "entries": entries, "history": history})
+	return managementJSON(200, map[string]any{"selection": state.selectionViewLocked(listing), "schedule": state.scheduleViewLocked(), "version": pluginVersion, "prefer_292": enabledByDefault(state.config.Prefer292), "require_model_match": enabledByDefault(state.config.RequireModelMatch), "standby_enabled": enabledByDefault(state.config.StandbyEnabled), "history_persistent": state.config.RuntimeFile != "", "persistence_error": state.persistenceError, "mode": state.config.Mode, "dry_run": state.config.DryRun, "block_without_state": state.config.BlockWithoutState, "blocking_active": state.blockWithoutStateLocked(), "probe_parallel": true, "probe_enabled": state.config.Probe.Enabled, "continuous": state.config.Probe.Enabled && state.config.Probe.Continuous, "retry_seconds": state.config.Probe.RetrySeconds, "background_refresh": state.config.Probe.Enabled && (state.config.Probe.Continuous || enabledByDefault(state.config.Probe.BackgroundRefresh)), "refresh_before_seconds": state.config.Probe.RefreshBeforeSeconds, "proxy_pool": poolView, "proxy_mode": proxyMode, "reasoning_effort": state.config.Probe.ReasoningEffort, "max_per_hour": limit, "valid_count": validCount, "entries": entries, "history": history})
 }

@@ -21,12 +21,12 @@ func TestFreshStoreInstallWorksWithoutPluginParameters(t *testing.T) {
 		started <- struct{}{}
 		return makeFernetToken(t, time.Now().UTC().Truncate(time.Second), 10), "ok", model
 	}
-	cfg := []byte("enabled: true\npriority: 0\nstore:\n  id: codex-turn-state-manager\n  version: 0.3.2\n  source-url: https://example.invalid/registry.json\n")
+	cfg := []byte("enabled: true\npriority: 0\nstore:\n  id: codex-turn-state-manager\n  version: 0.3.3\n  source-url: https://example.invalid/registry.json\n")
 	if err := state.configure(jsonBytes(lifecycleRequest{ConfigYAML: cfg, SchemaVersion: 6})); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(state.shutdown)
-	if state.config.Mode != "force" || state.config.BlockWithoutState || !state.config.Probe.Enabled || !state.config.Probe.Continuous || state.config.Probe.RetrySeconds != 15 {
+	if state.config.Mode != "force" || state.config.BlockWithoutState || !state.config.Probe.Enabled || !state.config.Probe.Continuous || state.config.Probe.RetrySeconds != 7 || state.config.Probe.RefreshBeforeSeconds != 1800 {
 		t.Fatal("fresh defaults require extra configuration")
 	}
 	if !state.config.SelectionRequired || state.config.StateFile == "" || state.config.SelectionFile == "" || state.config.RuntimeFile == "" || state.config.ArchiveDir == "" {

@@ -45,19 +45,47 @@ func (state *runtimeState) stopBackground() {
 
 func (state *runtimeState) refreshLoop(ctx context.Context, wake <-chan struct{}, done chan<- struct{}) {
 	defer close(done)
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
 	for {
 		if ctx.Err() != nil {
 			return
 		}
 		state.refreshDue(ctx)
+		timer := time.NewTimer(state.nextWakeDelay())
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return
-		case <-ticker.C:
+		case <-timer.C:
 		case <-wake:
+			timer.Stop()
 		}
+	}
+}
+
+// Keep discovery responsive while honoring intervals that are not multiples of five.
+func (state *runtimeState) nextWakeDelay() time.Duration {
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	delay := 5 * time.Second
+	now := state.now()
+	for key := range state.lastProbe {
+		auth, model := splitStateKey(key)
+		if state.probing[key] || !state.pairSelectedLocked(auth, model) {
+			continue
+		}
+		if remaining := state.nextRefreshLocked(key).Sub(now); remaining > 0 && remaining < delay {
+			delay = remaining
+		}
+	}
+	return delay
+}
+
+func (state *runtimeState) wakeBackground() {
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	select {
+	case state.wake <- struct{}{}:
+	default:
 	}
 }
 

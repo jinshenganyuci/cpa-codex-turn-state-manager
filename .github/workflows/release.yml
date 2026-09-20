@@ -26,6 +26,7 @@ jobs:
           CPA_PLAYWRIGHT_MODULE=/tmp/manager-browser/node_modules/playwright node scripts/test-selection-ui.cjs
           CPA_PLAYWRIGHT_MODULE=/tmp/manager-browser/node_modules/playwright node scripts/test-login-ui.cjs
           CPA_PLAYWRIGHT_MODULE=/tmp/manager-browser/node_modules/playwright node scripts/test-proxy-pool-ui.cjs
+          CPA_PLAYWRIGHT_MODULE=/tmp/manager-browser/node_modules/playwright node scripts/test-schedule-ui.cjs
   build:
     needs: test
     name: Build Linux amd64

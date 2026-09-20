@@ -85,6 +85,6 @@ func defaultPluginConfig() pluginConfig {
 	return pluginConfig{
 		Enabled: true, MaxStateBytes: defaultMaxBytes, Mode: "force", SelectionRequired: true,
 		Defaults: &credentialConfig{AcceptedBlocks: []int{10, 12}, Models: []string{"gpt-6-astra", "gpt-5.6-sol"}},
-		Probe:    probeConfig{Enabled: true, Continuous: true, OnMissing: true, ReasoningEffort: "medium", RetrySeconds: defaultProbeRetrySeconds, RefreshBeforeSeconds: 300, MaxAttempts: 1, QuotaBackoffSeconds: 900},
+		Probe:    probeConfig{Enabled: true, Continuous: true, OnMissing: true, ReasoningEffort: "medium", RetrySeconds: defaultProbeRetrySeconds, RefreshBeforeSeconds: defaultRefreshBeforeSeconds, MaxAttempts: 1, QuotaBackoffSeconds: 900},
 	}
 }

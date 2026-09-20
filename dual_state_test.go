@@ -109,7 +109,7 @@ func TestBothLengthsPersistArchiveAndReplayLatest(t *testing.T) {
 	}
 }
 
-func TestRefreshAt55MinutesAcceptsEitherLength(t *testing.T) {
+func TestRefreshAt30MinutesAcceptsEitherLength(t *testing.T) {
 	for _, blocks := range []int{10, 12} {
 		t.Run(map[int]string{10: "292_to_332", 12: "332_to_292"}[blocks], func(t *testing.T) {
 			dir := t.TempDir()
@@ -130,13 +130,13 @@ func TestRefreshAt55MinutesAcceptsEitherLength(t *testing.T) {
 				next = makeFernetToken(t, now, 22-blocks)
 				return next, "ok", ""
 			}
-			now = issued.Add(55*time.Minute - time.Second)
+			now = issued.Add(30*time.Minute - time.Second)
 			state.refreshDue(context.Background())
 			state.probeWG.Wait()
 			if calls != 0 {
-				t.Fatal("refreshed before the 55-minute threshold")
+				t.Fatal("refreshed before the 30-minute threshold")
 			}
-			now = issued.Add(55 * time.Minute)
+			now = issued.Add(30 * time.Minute)
 			state.refreshDue(context.Background())
 			state.probeWG.Wait()
 			if calls != 1 || state.current[key].Value != next {
@@ -154,7 +154,7 @@ func TestRefreshAt55MinutesAcceptsEitherLength(t *testing.T) {
 			if got := headerValue(begin(t, state, "refreshed", "auth-a", "gpt-6-astra", "").Headers, turnStateHeader); got != next {
 				t.Fatal("refreshed value not applied")
 			}
-			if got := state.nextRefreshLocked(key); !got.Equal(now.Add(55 * time.Minute)) {
+			if got := state.nextRefreshLocked(key); !got.Equal(now.Add(30 * time.Minute)) {
 				t.Fatalf("unexpected next refresh: %v", got)
 			}
 			state.refreshDue(context.Background())
@@ -172,7 +172,7 @@ func TestFailedRefreshKeepsUnexpiredStateAndRetries(t *testing.T) {
 	state.config.Probe.Enabled = true
 	key := stateKey("auth-a", "gpt-6-astra")
 	issued := state.now()
-	now := issued.Add(55 * time.Minute)
+	now := issued.Add(30 * time.Minute)
 	state.now = func() time.Time { return now }
 	old := makeFernetToken(t, issued, 12)
 	seed(state, old)

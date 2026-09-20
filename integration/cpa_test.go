@@ -681,7 +681,7 @@ func TestRealCPANativeHotUpgradeSelection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(h.root, "plugins", "codex-turn-state-manager-v0.3.2.so"), data, 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(h.root, "plugins", "codex-turn-state-manager-v0.3.3.so"), data, 0600); err != nil {
 		t.Fatal(err)
 	}
 	patch, _ := json.Marshal(map[string]any{"selection_required": true, "selection_file": filepath.Join(h.root, "selection.json")})
@@ -697,6 +697,6 @@ func TestRealCPANativeHotUpgradeSelection(t *testing.T) {
 				Required bool `json:"required"`
 			} `json:"selection"`
 		}
-		return code == 200 && json.Unmarshal(body, &state) == nil && state.Version == "0.3.2" && state.Selection.Required
+		return code == 200 && json.Unmarshal(body, &state) == nil && state.Version == "0.3.3" && state.Selection.Required
 	})
 }
