@@ -20,7 +20,7 @@ import (
 
 const (
 	pluginName        = "codex-turn-state-manager"
-	pluginVersion     = "0.2.4"
+	pluginVersion     = "0.3.0"
 	pluginSchema      = uint32(4)
 	pluginABIVersion  = uint32(1)
 	defaultMaxBytes   = 4096
@@ -51,6 +51,7 @@ type pluginConfig struct {
 	RequireModelMatch *bool                       `yaml:"require_model_match"`
 	Prefer292         *bool                       `yaml:"prefer_292"`
 	StandbyEnabled    *bool                       `yaml:"standby_enabled"`
+	ProxyPoolFile     string                      `yaml:"proxy_pool_file"`
 	RuntimeFile       string                      `yaml:"runtime_file"`
 	ArchiveDir        string                      `yaml:"archive_dir"`
 	StateFile         string                      `yaml:"state_file"`
@@ -114,6 +115,7 @@ type stateCandidate struct {
 }
 
 type runtimeState struct {
+	pool             *probeProxyPool
 	storageDir       string
 	journalMu        sync.Mutex
 	standby          map[string]storedState
@@ -158,6 +160,7 @@ var runtime = newRuntimeState()
 
 func newRuntimeState() *runtimeState {
 	return &runtimeState{
+		pool:            newProbeProxyPool(),
 		activeCancels:   make(map[string]context.CancelFunc),
 		standby:         make(map[string]storedState),
 		selection:       emptySelection(),
@@ -328,7 +331,7 @@ func pluginRegistration() registration {
 				{Name: "selection_file", Type: "string", Description: "Private file persisting dashboard credential and model selections."},
 				{Name: "defaults", Type: "object", Description: "Fallback policy for selected auth IDs not listed under credentials."},
 				{Name: "credentials", Type: "object", Description: "Per-auth state, plan, model scope, and baseline configuration."},
-				{Name: "probe", Type: "object", Description: "Acquire independently per credential/model using only the credential proxy."},
+				{Name: "probe", Type: "object", Description: "Acquire independently per credential/model; an enabled dashboard proxy pool overrides only acquisition routes."},
 			},
 		},
 		Capabilities: registrationCapability{
@@ -461,6 +464,9 @@ func (state *runtimeState) configure(raw []byte) error {
 		return errSelection
 	}
 	state.stopBackground()
+	if err := state.pool.load(cfg.ProxyPoolFile); err != nil {
+		return err
+	}
 	state.mu.Lock()
 	defer state.mu.Unlock()
 	if state.probeCancel != nil {

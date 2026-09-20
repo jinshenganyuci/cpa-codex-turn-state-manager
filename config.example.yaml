@@ -8,6 +8,7 @@ plugins:
       mode: force # Use a validated cache when available; otherwise pass through.
       dry_run: false
       require_model_match: true
+      # The optional probe-only proxy pool is managed and saved from the dashboard.
       prefer_292: true
       standby_enabled: true
       runtime_file: /CLIProxyAPI/private/turn-state/runtime.json

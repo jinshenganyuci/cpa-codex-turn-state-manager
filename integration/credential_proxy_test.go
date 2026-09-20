@@ -18,15 +18,15 @@ func TestRealCPARetiredProxyPoolCannotOverrideCredentialMode(t *testing.T) {
 	await(t, func() bool {
 		code, raw = h.call(t, "GET", "/v0/management/codex-turn-state-manager/status", nil, managementKey)
 		var status map[string]any
-		return code == 200 && json.Unmarshal(raw, &status) == nil && status["version"] == "0.2.4" && status["proxy_mode"] == "credential" && status["probe_parallel"] == true && status["proxies"] == nil
+		return code == 200 && json.Unmarshal(raw, &status) == nil && status["version"] == "0.3.0" && status["proxy_mode"] == "credential" && status["probe_parallel"] == true && status["proxies"] == nil
 	})
 	code, _ = h.call(t, "POST", "/v0/management/codex-turn-state-manager/proxy", []byte(`{"action":"enable","id":"old"}`), managementKey)
 	if code != 404 {
 		t.Fatalf("retired proxy endpoint still active: %d", code)
 	}
 	code, raw = h.call(t, "GET", "/v0/resource/plugins/codex-turn-state-manager/status", nil, "")
-	if code != 200 || bytes.Contains(raw, []byte("代理池健康")) || bytes.Contains(raw, []byte("proxyRows")) || !bytes.Contains(raw, []byte("使用各凭据")) {
-		t.Fatal("credential-only UI not deployed")
+	if code != 200 || bytes.Contains(raw, []byte("代理池健康")) || !bytes.Contains(raw, []byte("proxyRows")) || !bytes.Contains(raw, []byte("正常 API 请求始终沿用凭据自己的代理")) {
+		t.Fatal("probe-only pool UI not deployed")
 	}
 }
 

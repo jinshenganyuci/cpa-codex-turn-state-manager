@@ -1,6 +1,7 @@
 'use strict';
 const base = '/v0/management/codex-turn-state-manager';
 const $ = id => document.getElementById(id);
+let poolData = {enabled:false, revision:0, entries:[]}, poolSaving = false, editingProxy = '', proxyEditRevision = 0;
 let key = '', keySource = '', busy = false, saving = false, selectionDirty = false, selectionRevision = 0;
 const loginStorageKey = 'cpa-turn-state-manager.auth.v1';
 const panelStorageKey = 'cli-proxy-auth';
@@ -51,7 +52,8 @@ function clearLogin(forget = true) {
   }
   key = ''; keySource = ''; selectionDirty = false; selectionRevision = 0;
   $('key').value = ''; $('modelChoices').replaceChildren(); $('credentialChoices').replaceChildren();
-  $('accounts').replaceChildren(); $('history').replaceChildren();
+  $('accounts').replaceChildren(); $('history').replaceChildren(); $('proxyRows').replaceChildren();
+  $('proxyForm').reset(); $('proxyForm').hidden = true; $('poolSummary').textContent = '等待连接'; $('togglePool').disabled = true; $('addProxy').disabled = true;
   $('priorityStatus').textContent = ''; $('historyPersistence').textContent = ''; $('saveSelection').disabled = true;
   $('modeLabel').textContent = '等待连接'; $('valid').textContent = '—';
   $('target292').textContent = '—'; $('target332').textContent = '—';
@@ -81,6 +83,15 @@ const selectionErrors = {
   model_not_available: '所选模型已不在候选列表，请重新载入。',
   model_out_of_credential_scope: '所选模型不在该凭据允许的模型范围内。',
   selection_save_failed: '保存失败，当前生效的选择没有改变。',
+  proxy_pool_changed_reload: '其他窗口已修改代理池，请关闭编辑后重新载入。',
+  proxy_pool_save_failed: '代理池保存失败，配置没有变更。',
+  invalid_proxy_url: '代理地址无效，请填写完整的 SOCKS5、HTTP 或 HTTPS 地址。',
+  invalid_proxy_label: '代理名称过长或包含换行。',
+  proxy_already_exists: '这个代理地址已经存在。',
+  proxy_not_found: '代理已删除，请刷新列表。',
+  proxy_test_running: '此代理正在测试。',
+  proxy_test_busy: '同时最多测试 4 个代理，请稍后再试。',
+  proxy_pool_unavailable: '代理池暂无可用出口，等待启用或冷却结束。',
   probe_already_running: '该组合正在获取，无需重复提交。',
   probe_retry_later: '该组合尚在重试间隔或退避期，本次没有排队，请稍后重试。'
 };
@@ -174,23 +185,25 @@ async function refresh() {
     $('priorityStatus').textContent = (data.prefer_292 ? '292 首选 · 有效 292 / 332 均暂停探测' : '使用已验收的状态值')
       + (data.require_model_match ? ' · 模型一致才入库' : '') + (data.standby_enabled ? ' · 提前准备备用值' : '');
     $('historyPersistence').textContent = data.persistence_error ? '保存失败：'+data.persistence_error : data.history_persistent ? '历史已启用持久化 · 每 5 秒刷新' : '每 5 秒刷新 · 最多 200 条';
-    const history = data.history || [];
+    const selectedAccounts = new Set((data.selection?.accounts || []).filter(a => a.selected).map(a => a.account));
+    const history = (data.history || []).filter(e => !data.selection?.required || selectedAccounts.has(e.account) && (data.selection.models || []).includes(e.model));
     $('target292').textContent = history.filter(x => x.length === 292 && x.success && (!x.acceptance || ['accepted','ok'].includes(x.acceptance))).length;
     $('target332').textContent = history.filter(x => x.length === 332 && x.success && (!x.acceptance || ['accepted','ok'].includes(x.acceptance))).length;
     $('effort').textContent = data.reasoning_effort;
     if (document.activeElement !== $('mode')) $('mode').value = data.mode;
     if (document.activeElement !== $('dry')) $('dry').checked = data.dry_run;
     renderSelection(data.selection);
+    renderPool(data.proxy_pool || {enabled:false,revision:0,entries:[]});
     const profiles = new Map((data.selection?.accounts || []).map(account => [account.account, account]));
     $('accounts').replaceChildren();
-    for (const e of data.entries) {
+    for (const e of data.entries.filter(entry => entry.selected)) {
       const row = document.createElement('tr');
       credentialCell(row, e, profiles.get(e.account)); cell(row, e.model); cell(row, e.selected ? '已勾选' : '未勾选');
       stateCell(row,e.state_length,e.source,e.valid,e.expires_at);
       stateCell(row,e.standby?.length,e.standby?.source,e.standby?.valid,e.standby?.expires_at);
       cell(row, !e.selected ? '未启用' : e.valid ? time(e.expires_at) : '暂无有效缓存');
       cell(row, e.next_refresh_at ? (e.probing ? '刷新中' : time(e.next_refresh_at)) : '未安排');
-      cell(row, !e.selected ? '已停止获取' : e.probing ? '探测中' : e.last_probe || '尚未探测');
+      cell(row, !e.selected ? '已停止获取' : e.probing ? '探测中' : selectionErrors[e.last_probe] || e.last_probe || '尚未探测');
       const td = cell(row, ''); const button = document.createElement('button'); button.textContent = '探测一次';
       button.disabled = !data.probe_enabled || e.probing || !e.selected;
       button.addEventListener('click', async () => {
@@ -203,6 +216,7 @@ async function refresh() {
       });
       td.append(button); $('accounts').append(row);
     }
+    if (!$('accounts').children.length) { const row = document.createElement('tr'); cell(row, '暂无已保存勾选的凭据与模型，请在上方选择并保存。').colSpan = 9; $('accounts').append(row); }
     $('history').replaceChildren();
     for (const e of history.slice().reverse()) {
       const row = document.createElement('tr');
@@ -216,10 +230,11 @@ async function refresh() {
       const recovered=({active:'已入库',upgraded_292:'已升级为 292',standby:'已收为备用',duplicate:'重复值',older:'较旧值',lower_priority:'保留优先值'})[e.cache_action];
       const acceptance=({model_mismatch:'模型不一致，未入库',model_evidence_missing:'缺少模型证据',state_rejected:'状态未通过验收',accepted:'验收通过',ok:'验收通过'})[e.acceptance];
       cell(row,recovered ? sourceName(e.state_source)+' · '+recovered : acceptance || '—');
+      cell(row, e.action === 'probe' ? (poolData.entries.find(p => p.id === e.proxy_id)?.label || (e.proxy_id ? '已移除代理' : '凭据代理')) : 'CPA 凭据代理');
       cell(row, ({observe: '观察', probe: '探测', replaced: '已替换', would_replace: '模拟替换', blocked: '已拦截'})[e.action] || e.action);
       cell(row, e.action === 'blocked' ? '未发送上游' : e.success ? '完整成功' : '未成功', 'badge' + (e.success ? '' : ' failed')); $('history').append(row);
     }
-    notice('已连接 · 代理策略：' + '使用各凭据设置中的代理'
+    notice('已连接 · 代理策略：' + (data.proxy_mode === 'pool' ? '插件获取走代理池；业务使用各凭据设置中的代理' : '使用各凭据设置中的代理')
       + (data.continuous ? ' · 各组合并行获取，重试间隔 ' + data.retry_seconds + ' 秒' : '') + ' · 更新时间 ' + new Date().toLocaleTimeString());
     return true;
   } catch (err) { notice(err.message); }
@@ -266,3 +281,66 @@ window.addEventListener('storage', event => {
   }
 });
 restoreLogin();
+
+function proxyResult(e) {
+  if (e.testing) return '测试中…';
+  const test = e.test || {};
+  if (!test.at || test.at.startsWith('0001-')) return '未测试';
+  const label = {reachable:'可达',upstream_forbidden:'上游拒绝访问',proxy_auth_failed:'代理认证失败',upstream_unavailable:'上游暂不可用',test_timeout_or_cancelled:'超时或已取消',connection_failed:'连接失败'}[test.result] || test.result;
+  return label + (test.http_status ? ' · HTTP ' + test.http_status : '') + ' · ' + test.latency_ms + ' ms';
+}
+function showProxyEditor(e) {
+  editingProxy = e?.id || ''; proxyEditRevision = poolData.revision;
+  $('proxyForm').reset(); $('proxyFormTitle').textContent = e ? '编辑代理' : '添加代理';
+  $('proxyLabel').value = e?.label || ''; $('proxyEnabled').checked = e?.enabled ?? true;
+  $('proxyRotating').checked = e?.rotating ?? false; $('proxyURL').required = !e;
+  $('proxyURL').placeholder = e ? '留空保留现有地址和认证' : 'socks5://用户名:密码@主机:端口';
+  $('proxyForm').hidden = false; $('proxyLabel').focus();
+}
+async function poolAction(action, body, message) {
+  if (poolSaving) return;
+  poolSaving = true;
+  try {
+    await api('/proxy-pool/' + action, {revision:poolData.revision,...body});
+    await refresh(); $('poolNotice').textContent = message;
+  } catch (err) { $('poolNotice').textContent = err.message; }
+  finally {poolSaving=false;renderPool(poolData);}
+}
+function renderPool(data) {
+  poolData=data;
+  const now=Date.now(), available=data.entries.filter(e => e.enabled && (!e.cooldown_until || Date.parse(e.cooldown_until)<=now)).length;
+  $('poolSummary').textContent = data.enabled ? '代理池已启用 · '+available+'/'+data.entries.length+' 可用' : '获取使用凭据代理';
+  $('togglePool').textContent=data.enabled?'停用代理池':'启用代理池';
+  $('togglePool').disabled=!key||poolSaving;
+  $('addProxy').disabled=!key||poolSaving;
+  if(data.persistence_error) $('poolNotice').textContent='代理池保存失败，请检查状态目录的写入权限。';
+  $('proxyRows').replaceChildren();
+  for(const e of data.entries) {
+    const row=document.createElement('tr'), name=cell(row,'');name.className='proxy-address';name.textContent=e.label;
+    const address=document.createElement('small');address.className='credential-detail';address.textContent=e.address+(e.authenticated?' · 已保存认证':'')+(e.rotating?' · 轮换出口':'');name.append(address);
+    const cooling=Date.parse(e.cooldown_until)>now;
+    cell(row,!e.enabled?'已停用':cooling?'冷却至 '+time(e.cooldown_until):'可用');
+    cell(row,e.attempts||0);cell(row,(e.success_292||0)+' / '+(e.success_332||0));cell(row,e.last_result||'尚未获取');cell(row,proxyResult(e));
+    const actions=cell(row,''),wrap=document.createElement('div');wrap.className='proxy-actions';actions.append(wrap);
+    const button=(label,run,disabled=false,danger=false)=>{const b=document.createElement('button');b.type='button';b.textContent=label;b.disabled=poolSaving||disabled;if(danger)b.className='danger';b.addEventListener('click',run);wrap.append(b);};
+    button('测试',()=>poolAction('test',{id:e.id},'正在测试 '+e.label+'；测试结果会自动更新。'),e.testing);
+    button('编辑',()=>showProxyEditor(e));
+    button(e.enabled?'停用':'启用',()=>poolAction('save',{id:e.id,label:e.label,enabled:!e.enabled,rotating:e.rotating},'代理状态已保存。'));
+    if(cooling) button('解除冷却',()=>poolAction('reset',{id:e.id},'冷却已解除。'));
+    button('删除',()=>{if(window.confirm('删除代理“'+e.label+'”？后续获取将不再使用它。'))poolAction('delete',{id:e.id},'代理已删除。');},false,true);
+    $('proxyRows').append(row);
+  }
+  if(!data.entries.length){const row=document.createElement('tr');cell(row,data.enabled?'代理池为空，后台获取已暂停。请添加并启用代理。':'尚未添加代理。添加并启用代理池后，仅插件获取改走池中出口。').colSpan=7;$('proxyRows').append(row);}
+}
+$('addProxy').addEventListener('click',()=>showProxyEditor(null));
+$('togglePool').addEventListener('click',()=>poolAction('mode',{enabled:!poolData.enabled},poolData.enabled?'代理池已停用，后续获取使用凭据代理。':'代理池已启用，仅影响插件获取。'));
+$('cancelProxyEdit').addEventListener('click',()=>{$('proxyForm').reset();$('proxyForm').hidden=true;editingProxy='';});
+$('proxyForm').addEventListener('submit',async event=>{
+ event.preventDefault();if(poolSaving)return;poolSaving=true;$('saveProxy').disabled=true;
+ const body={revision:proxyEditRevision,id:editingProxy,label:$('proxyLabel').value.trim(),url:$('proxyURL').value.trim(),enabled:$('proxyEnabled').checked,rotating:$('proxyRotating').checked};
+ try {
+  await api('/proxy-pool/save',body);$('proxyForm').reset();$('proxyForm').hidden=true;editingProxy='';
+  await refresh();$('poolNotice').textContent='代理已保存。'+(poolData.enabled?'后续获取会按池中可用出口轮询。':'可以先测试连通性，再点击“启用代理池”。');
+ }catch(err){$('poolNotice').textContent=err.message;}
+ finally{poolSaving=false;$('saveProxy').disabled=false;renderPool(poolData);}
+});

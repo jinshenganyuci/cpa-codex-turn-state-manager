@@ -69,6 +69,9 @@ func (state *runtimeState) applyStorageDefaults(cfg *pluginConfig) error {
 	if cfg.SelectionFile == "" {
 		cfg.SelectionFile = cfg.StateFile + ".selection.json"
 	}
+	if cfg.ProxyPoolFile == "" {
+		cfg.ProxyPoolFile = cfg.StateFile + ".proxies.json"
+	}
 	if cfg.RuntimeFile == "" {
 		cfg.RuntimeFile = cfg.StateFile + ".runtime.json"
 	}

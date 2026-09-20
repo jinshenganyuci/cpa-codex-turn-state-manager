@@ -10,7 +10,7 @@ const credential = 'credential-a';
 let revision = 0, models = [], accounts = [], saves = 0, probeCalls = 0;
 const modelOptions = ['gpt-6-astra', 'gpt-5.6-sol', 'gpt-5.6-luna'];
 function status() {
-  return {version: '0.2.4', probe_parallel: true, prefer_292: true, require_model_match: true, standby_enabled: true, history_persistent: true,
+  return {version: '0.3.0', probe_parallel: true, prefer_292: true, require_model_match: true, standby_enabled: true, history_persistent: true,
  block_without_state: false, blocking_active: false, mode: 'force', probe_enabled: true, continuous: true, retry_seconds: 5,
     reasoning_effort: 'medium', proxy_mode: 'credential', dry_run: false, valid_count: 0,
     selection: {required: true, persistent: true, revision, models, model_options: modelOptions,
@@ -53,6 +53,15 @@ const server = http.createServer((request, response) => {
     await page.goto(`http://127.0.0.1:${server.address().port}${prefix}status`); await login();
     assert.equal(await page.getByRole('checkbox').count(), 5);
     assert.match(await page.locator('#guardStatus').textContent(), /正常放行/);
+    assert.equal(await page.locator('#accounts button').count(), 0);
+    assert.equal(await page.locator('#history tr').count(), 0);
+    await page.getByRole('checkbox', {name: 'gpt-6-astra', exact: true}).check();
+    await page.getByRole('checkbox', {name: 'gpt-5.6-sol', exact: true}).check();
+    await page.getByRole('checkbox', {name: 'demo@example.test', exact: true}).check();
+    await page.getByRole('button', {name: '刷新', exact: true}).click();
+    assert.equal(await page.getByRole('checkbox', {name: 'gpt-5.6-sol', exact: true}).isChecked(), true);
+    await save(); assert.deepEqual(models, ['gpt-6-astra', 'gpt-5.6-sol']); assert.deepEqual(accounts, [credential]);
+    await page.getByRole('button', {name: '刷新', exact: true}).click();
     assert.match(await page.locator('#history').textContent(), /已拦截.*未发送上游/);
     assert.match(await page.locator('#credentialChoices').textContent(), /demo@example.test.*Plus/);
     assert.match(await page.locator('#history').textContent(), /demo@example.test.*Plus.*gpt-6-astra.*gpt-5.6-luna/);
@@ -65,12 +74,7 @@ const server = http.createServer((request, response) => {
     assert.equal(await page.locator('#target332').textContent(), '0');
     assert.equal(await page.getByRole('heading',{name:'代理池健康',exact:true}).count(),0);
     assert.match(await page.locator('#notice').textContent(),/使用各凭据设置中的代理.*各组合并行获取/);
-    await page.getByRole('checkbox', {name: 'gpt-6-astra', exact: true}).check();
-    await page.getByRole('checkbox', {name: 'gpt-5.6-sol', exact: true}).check();
-    await page.getByRole('checkbox', {name: 'demo@example.test', exact: true}).check();
-    await page.getByRole('button', {name: '刷新', exact: true}).click();
-    assert.equal(await page.getByRole('checkbox', {name: 'gpt-5.6-sol', exact: true}).isChecked(), true);
-    await save(); assert.deepEqual(models, ['gpt-6-astra', 'gpt-5.6-sol']); assert.deepEqual(accounts, [credential]);
+
     await page.getByRole('button',{name:'刷新',exact:true}).click();
     await page.locator('#accounts tr').filter({hasText:'gpt-6-astra'}).getByRole('button',{name:'探测一次',exact:true}).click();
     assert.equal(probeCalls,1);
@@ -90,6 +94,6 @@ const server = http.createServer((request, response) => {
     await page.setViewportSize({width: 390, height: 844});
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     assert.deepEqual(errors, []);
-    console.log(JSON.stringify({passed: true, saves, checks: ['292_priority', 'business_standby', 'admission_display', 'credential_proxy_only', 'parallel_acquisition_notice', 'manual_start', 'email_and_plan', 'request_and_response_models', 'default_passthrough_status', 'blocked_history', 'checkboxes', 'draft_survives_poll', 'save', 'reload', 'deselect_model', 'deselect_credential', 'stale_revision', 'mobile_layout', 'no_console_errors']}));
+    console.log(JSON.stringify({passed: true, saves, checks: ['unchecked_rows_hidden', '292_priority', 'business_standby', 'admission_display', 'credential_proxy_only', 'parallel_acquisition_notice', 'manual_start', 'email_and_plan', 'request_and_response_models', 'default_passthrough_status', 'blocked_history', 'checkboxes', 'draft_survives_poll', 'save', 'reload', 'deselect_model', 'deselect_credential', 'stale_revision', 'mobile_layout', 'no_console_errors']}));
   } finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }
 })().catch(error => { console.error(error); server.close(); process.exitCode = 1; });

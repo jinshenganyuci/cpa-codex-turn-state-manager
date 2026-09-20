@@ -9,3 +9,7 @@ Dashboard, task management, state retention and operational controls were inform
 Reference: https://github.com/arden-aaai/cpa-plugin-codex-turn-state
 
 The dependency licenses are retained by their respective upstream packages: gopkg.in/yaml.v3 (MIT / Apache-2.0) and github.com/gorilla/websocket (BSD-2-Clause).
+
+The probe-only proxy pool management, redacted endpoint summaries and separate business/probe routing were informed by FlashyyL/oai-adversarial-plugin at commit `4659221a6cd6ac9f46419682c08a40149fc40dea`. The pool implementation in this repository is independently written.
+
+Reference: https://github.com/FlashyyL/oai-adversarial-plugin

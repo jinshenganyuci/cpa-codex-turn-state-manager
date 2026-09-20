@@ -275,7 +275,7 @@ func rawRequest(raw []byte) managementRequest {
 }
 func managementRoutes() any {
 	routes := []map[string]string{{"Method": "GET", "Path": apiBase + "/status"}}
-	for _, path := range []string{"probe", "cancel", "mode", "selection"} {
+	for _, path := range []string{"probe", "cancel", "mode", "selection", "proxy-pool/mode", "proxy-pool/save", "proxy-pool/delete", "proxy-pool/reset", "proxy-pool/test"} {
 		routes = append(routes, map[string]string{"Method": "POST", "Path": apiBase + "/" + path})
 	}
 	return map[string]any{"routes": routes, "resources": []map[string]string{{"Path": "/status", "Menu": "回合状态", "Description": "观察、探测并保存 Codex 回合状态。"}, {"Path": "/app.js"}, {"Path": "/app.css"}}}
@@ -320,6 +320,9 @@ func (state *runtimeState) management(req managementRequest) ([]byte, error) {
 	}
 	if req.Method != "POST" {
 		return managementJSON(404, map[string]string{"error": "not_found"})
+	}
+	if strings.HasPrefix(req.Path, apiBase+"/proxy-pool/") {
+		return state.poolManagement(strings.TrimPrefix(req.Path, apiBase+"/proxy-pool/"), req.Body)
 	}
 	if req.Path == apiBase+"/selection" {
 		return state.updateSelection(req.Body)
@@ -387,6 +390,11 @@ func (state *runtimeState) management(req managementRequest) ([]byte, error) {
 func (state *runtimeState) statusResponse() ([]byte, error) {
 	defer state.flushPersistence()
 	listing, _ := state.listDisplayAuths()
+	poolView := state.pool.view()
+	proxyMode := "credential"
+	if poolView["enabled"] == true {
+		proxyMode = "pool"
+	}
 	state.mu.Lock()
 	defer state.mu.Unlock()
 	keys := make(map[string]bool)
@@ -426,6 +434,9 @@ func (state *runtimeState) statusResponse() ([]byte, error) {
 	validCount := 0
 	for _, key := range ordered {
 		auth, model := splitStateKey(key)
+		if !state.pairSelectedLocked(auth, model) {
+			continue
+		}
 		state.promoteStandbyLocked(key)
 		current := state.current[key]
 		standby := state.standby[key]
@@ -452,5 +463,24 @@ func (state *runtimeState) statusResponse() ([]byte, error) {
 	if state.config.Probe.Continuous {
 		limit = 0
 	}
-	return managementJSON(200, map[string]any{"selection": state.selectionViewLocked(listing), "version": pluginVersion, "prefer_292": enabledByDefault(state.config.Prefer292), "require_model_match": enabledByDefault(state.config.RequireModelMatch), "standby_enabled": enabledByDefault(state.config.StandbyEnabled), "history_persistent": state.config.RuntimeFile != "", "persistence_error": state.persistenceError, "mode": state.config.Mode, "dry_run": state.config.DryRun, "block_without_state": state.config.BlockWithoutState, "blocking_active": state.blockWithoutStateLocked(), "probe_parallel": true, "probe_enabled": state.config.Probe.Enabled, "continuous": state.config.Probe.Enabled && state.config.Probe.Continuous, "retry_seconds": state.config.Probe.RetrySeconds, "background_refresh": state.config.Probe.Enabled && (state.config.Probe.Continuous || enabledByDefault(state.config.Probe.BackgroundRefresh)), "refresh_before_seconds": state.config.Probe.RefreshBeforeSeconds, "proxy_mode": state.config.Probe.ProxyMode, "reasoning_effort": state.config.Probe.ReasoningEffort, "max_per_hour": limit, "valid_count": validCount, "entries": entries, "history": state.history})
+	history := state.history
+	if state.config.SelectionRequired {
+		selectedAccounts := make(map[string]bool)
+		for auth := range state.selection.Accounts {
+			selectedAccounts[digest(auth)[:12]] = true
+		}
+		history = make([]observation, 0)
+		for _, entry := range state.history {
+			if !selectedAccounts[entry.Account] {
+				continue
+			}
+			for _, model := range state.selection.Models {
+				if model == entry.Model {
+					history = append(history, entry)
+					break
+				}
+			}
+		}
+	}
+	return managementJSON(200, map[string]any{"selection": state.selectionViewLocked(listing), "version": pluginVersion, "prefer_292": enabledByDefault(state.config.Prefer292), "require_model_match": enabledByDefault(state.config.RequireModelMatch), "standby_enabled": enabledByDefault(state.config.StandbyEnabled), "history_persistent": state.config.RuntimeFile != "", "persistence_error": state.persistenceError, "mode": state.config.Mode, "dry_run": state.config.DryRun, "block_without_state": state.config.BlockWithoutState, "blocking_active": state.blockWithoutStateLocked(), "probe_parallel": true, "probe_enabled": state.config.Probe.Enabled, "continuous": state.config.Probe.Enabled && state.config.Probe.Continuous, "retry_seconds": state.config.Probe.RetrySeconds, "background_refresh": state.config.Probe.Enabled && (state.config.Probe.Continuous || enabledByDefault(state.config.Probe.BackgroundRefresh)), "refresh_before_seconds": state.config.Probe.RefreshBeforeSeconds, "proxy_pool": poolView, "proxy_mode": proxyMode, "reasoning_effort": state.config.Probe.ReasoningEffort, "max_per_hour": limit, "valid_count": validCount, "entries": entries, "history": history})
 }

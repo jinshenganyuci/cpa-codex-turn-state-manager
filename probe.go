@@ -38,7 +38,7 @@ type probeConfig struct {
 }
 
 func normalizeProbe(cfg *probeConfig) error {
-	// A credential's current proxy is the sole route for acquisition.
+	// Retired YAML pools stay ignored. The dashboard owns the new private pool file.
 	cfg.ProxyMode = "credential"
 	cfg.AllowProxyOverride = false
 	cfg.FirstProxy, cfg.ProxyPool, cfg.CredentialPools = nil, nil, nil
@@ -235,19 +235,20 @@ func (state *runtimeState) runProbe(task *probeTask) {
 	outcome := "auth_unavailable"
 	lastHistoryAt := time.Time{}
 	if err == nil {
-		endpoint := proxyEndpoint{URL: strings.TrimSpace(auth.ProxyURL)}
-		if endpoint.URL == "" {
-			outcome = "credential_proxy_required"
-		} else if _, err := endpoint.resolve(); err != nil {
-			outcome = "proxy_invalid"
-		}
-		for attempt := 0; attempt < cfg.Probe.MaxAttempts && endpoint.URL != "" && outcome != "proxy_invalid" && ctx.Err() == nil; attempt++ {
+		for attempt := 0; attempt < cfg.Probe.MaxAttempts && ctx.Err() == nil; attempt++ {
 			state.mu.Lock()
 			if !cfg.Probe.Continuous && state.probeCounts[authID] >= cfg.Probe.MaxPerHour {
 				state.mu.Unlock()
 				outcome = "hourly_budget_reached"
 				break
 			}
+			state.mu.Unlock()
+			endpoint, ticket, routeError := state.pool.route(auth.ProxyURL, state.now())
+			if routeError != "" {
+				outcome = routeError
+				break
+			}
+			state.mu.Lock()
 			state.probeCounts[authID]++
 			state.mu.Unlock()
 			value, status, responseModel := state.fetch(ctx, auth, model, nil, endpoint)
@@ -264,6 +265,12 @@ func (state *runtimeState) runProbe(task *probeTask) {
 					outcome = "state_rejected"
 				}
 			}
+			if ctx.Err() != nil {
+				outcome = "cancelled"
+			}
+			if !state.pool.finish(ticket, outcome, len(value), state.now()) {
+				outcome = "proxy_changed"
+			}
 			state.mu.Lock()
 			if generation != state.generation {
 				state.mu.Unlock()
@@ -276,6 +283,7 @@ func (state *runtimeState) runProbe(task *probeTask) {
 			row.credentialDisplay = auth.Display
 			row.ResponseModel = responseModel
 			row.StateSource = "probe"
+			row.ProxyID = ticket.ID
 			row.Acceptance = outcome
 			if responseModel != "" {
 				row.ResponseModelSource = "upstream.probe.response.model"

@@ -21,7 +21,7 @@ func TestFreshStoreInstallWorksWithoutPluginParameters(t *testing.T) {
 		started <- struct{}{}
 		return makeFernetToken(t, time.Now().UTC().Truncate(time.Second), 10), "ok", model
 	}
-	cfg := []byte("enabled: true\npriority: 0\nstore:\n  id: codex-turn-state-manager\n  version: 0.2.4\n  source-url: https://example.invalid/registry.json\n")
+	cfg := []byte("enabled: true\npriority: 0\nstore:\n  id: codex-turn-state-manager\n  version: 0.3.0\n  source-url: https://example.invalid/registry.json\n")
 	if err := state.configure(jsonBytes(lifecycleRequest{ConfigYAML: cfg, SchemaVersion: 6})); err != nil {
 		t.Fatal(err)
 	}
