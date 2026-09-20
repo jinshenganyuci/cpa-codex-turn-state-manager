@@ -10,13 +10,15 @@ const credential = 'credential-a';
 let revision = 0, models = [], accounts = [], saves = 0, probeCalls = 0;
 const modelOptions = ['gpt-6-astra', 'gpt-5.6-sol', 'gpt-5.6-luna'];
 function status() {
-  return {version: '0.3.1', probe_parallel: true, prefer_292: true, require_model_match: true, standby_enabled: true, history_persistent: true,
+  return {version: '0.3.2', probe_parallel: true, prefer_292: true, require_model_match: true, standby_enabled: true, history_persistent: true,
  block_without_state: false, blocking_active: false, mode: 'force', probe_enabled: true, continuous: true, retry_seconds: 15,
     reasoning_effort: 'medium', proxy_mode: 'credential', dry_run: false, valid_count: 0,
     selection: {required: true, persistent: true, revision, models, model_options: modelOptions,
       accounts: [{account: credential, label: '演示凭据 A', email: 'demo@example.test', plan_type: 'plus', disabled: false, selected: accounts.includes(credential)}]},
     entries: modelOptions.map(model => ({account: credential, model, selected: accounts.includes(credential) && models.includes(model),
-      state_length: 292, source:'probe', standby:{length:292,source:'business',valid:true,expires_at:'2026-09-20T00:00:00Z'}, last_observed_length: 0, valid: true, pending: '', probing: false, last_probe: '', next_refresh_at: null})), history: [{at: '2026-09-19T00:00:00Z', account: credential, model: 'gpt-6-astra', action: 'blocked', success: false, length: 0}, {at: '2026-09-19T00:00:01Z', account: credential, requested_model: 'gpt-6-astra', model: 'gpt-6-astra', response_model: 'gpt-5.6-luna', response_model_source: 'response.model', acceptance:'model_mismatch', action: 'replaced', success: true, length: 332}, {at:'2026-09-19T00:00:02Z',account:credential,model:'gpt-6-astra',response_model:'gpt-6-astra',action:'replaced',success:true,length:292,acceptance:'accepted',cache_action:'standby',state_source:'business'}]};
+      state_length: 292, source:'probe', standby:{length:292,source:'business',valid:true,expires_at:'2026-09-20T00:00:00Z'}, last_observed_length: 0, valid: true, pending: '', probing: false, last_probe: '', next_refresh_at: null})), history: [{at: '2026-09-19T00:00:00Z', account: credential, model: 'gpt-6-astra', action: 'blocked', success: false, length: 0}, {at: '2026-09-19T00:00:01Z', account: credential, requested_model: 'gpt-6-astra', model: 'gpt-6-astra', response_model: 'gpt-5.6-luna', response_model_source: 'response.model', acceptance:'model_mismatch', action: 'replaced', success: true, length: 332}, {at:'2026-09-19T00:00:02Z',account:credential,model:'gpt-6-astra',response_model:'gpt-6-astra',action:'replaced',success:true,length:292,acceptance:'accepted',cache_action:'standby',state_source:'business'},
+    {at:'2026-09-19T00:00:03Z',account:credential,model:'gpt-6-astra',action:'probe',success:true,length:292,acceptance:'ok',proxy_id:'deleted-proxy',proxy_label:'Novproxy 以色列轮换',exit_ip:'203.0.113.24'},
+    {at:'2026-09-19T00:00:04Z',account:credential,model:'gpt-6-astra',action:'probe',success:false,length:0,proxy_label:'旧记录'}]};
 }
 const server = http.createServer((request, response) => {
   const name = request.url.startsWith(prefix) ? request.url.slice(prefix.length) : '';
@@ -72,6 +74,15 @@ const server = http.createServer((request, response) => {
     assert.match(await page.locator('#history').textContent(), /业务观测 · 已收为备用/);
     assert.match(await page.locator('#history').textContent(), /模型不一致，未入库/);
     assert.equal(await page.locator('#target332').textContent(), '0');
+    const exitCell = page.locator('#history .request-exit').filter({hasText:'Novproxy 以色列轮换'});
+    assert.equal(await exitCell.locator('.exit-ip').textContent(),'203.0.113.24');
+    assert.equal(await page.locator('#history .request-exit').filter({hasText:'旧记录'}).locator('.exit-ip').textContent(),'IP 未获取');
+    assert.equal(await exitCell.locator('img,script').count(),0);
+    await page.setViewportSize({width:390,height:844});
+    assert.equal(await exitCell.evaluate(el=>el.querySelector('small').getBoundingClientRect().top >= el.querySelector('div').getBoundingClientRect().bottom),true);
+    await exitCell.screenshot({path:path.join(root,'dist','exit-ip-layout-0.3.2.png')});
+    await page.setViewportSize({width:1440,height:1100});
+
     assert.equal(await page.getByRole('heading',{name:'代理池健康',exact:true}).count(),0);
     assert.match(await page.locator('#notice').textContent(),/使用各凭据设置中的代理.*各组合并行获取/);
 
@@ -94,6 +105,6 @@ const server = http.createServer((request, response) => {
     await page.setViewportSize({width: 390, height: 844});
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     assert.deepEqual(errors, []);
-    console.log(JSON.stringify({passed: true, saves, checks: ['unchecked_rows_hidden', '292_priority', 'business_standby', 'admission_display', 'credential_proxy_only', 'parallel_acquisition_notice', 'manual_start', 'email_and_plan', 'request_and_response_models', 'default_passthrough_status', 'blocked_history', 'checkboxes', 'draft_survives_poll', 'save', 'reload', 'deselect_model', 'deselect_credential', 'stale_revision', 'mobile_layout', 'no_console_errors']}));
+    console.log(JSON.stringify({passed: true, saves, checks: ['egress_ip_below_name', 'historical_proxy_label', 'missing_ip_placeholder', 'unchecked_rows_hidden', '292_priority', 'business_standby', 'admission_display', 'credential_proxy_only', 'parallel_acquisition_notice', 'manual_start', 'email_and_plan', 'request_and_response_models', 'default_passthrough_status', 'blocked_history', 'checkboxes', 'draft_survives_poll', 'save', 'reload', 'deselect_model', 'deselect_credential', 'stale_revision', 'mobile_layout', 'no_console_errors']}));
   } finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }
 })().catch(error => { console.error(error); server.close(); process.exitCode = 1; });

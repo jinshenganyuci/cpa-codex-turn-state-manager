@@ -22,6 +22,13 @@ func TestRealCPAProxyPoolNeverChangesBusinessRoute(t *testing.T) {
 		upstream.server.Config.Handler.ServeHTTP(w, r)
 	}))
 	poolProxy, poolCA := freshInstallProxy(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/cdn-cgi/trace" {
+			if r.Header.Get("Authorization") != "" || r.Header.Get("ChatGPT-Account-ID") != "" {
+				t.Error("egress lookup leaked OAuth credentials")
+			}
+			_, _ = w.Write([]byte("h=chatgpt.com\nip=203.0.113.24\n"))
+			return
+		}
 		if r.Method == http.MethodGet {
 			testCount.Add(1)
 			if r.Header.Get("Authorization") != "" || r.Header.Get("Chatgpt-Account-Id") != "" {
@@ -116,6 +123,23 @@ func TestRealCPAProxyPoolNeverChangesBusinessRoute(t *testing.T) {
 	}
 	await(t, func() bool { return read().Valid == 1 })
 	s = read()
+	_, historyRaw := h.call(t, "GET", "/v0/management/codex-turn-state-manager/status", nil, managementKey)
+	var historyView struct {
+		History []struct {
+			ExitIP     string `json:"exit_ip"`
+			ProxyLabel string `json:"proxy_label"`
+		} `json:"history"`
+	}
+	_ = json.Unmarshal(historyRaw, &historyView)
+	foundEgress := false
+	for _, row := range historyView.History {
+		if row.ExitIP == "203.0.113.24" && row.ProxyLabel == "Acquisition only" {
+			foundEgress = true
+		}
+	}
+	if !foundEgress {
+		t.Fatal("request history lost the observed egress and proxy name")
+	}
 	if businessCount.Load() != 0 || poolCount.Load() != 1 || s.Pool.Entries[0].Attempts != 1 || s.Pool.Entries[1].Attempts != 1 {
 		t.Fatal("acquisition did not rotate exclusively inside the proxy pool")
 	}

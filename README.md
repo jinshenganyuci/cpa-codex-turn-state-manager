@@ -1,6 +1,6 @@
 # CPA Codex Turn State Manager
 
-Native CPA plugin **0.3.1**. Acquire, privately retain and reuse Codex `X-Codex-Turn-State`, preferring **292** and using **332** as fallback. [中文安装说明](README_CN.md).
+Native CPA plugin **0.3.2**. Acquire, privately retain and reuse Codex `X-Codex-Turn-State`, preferring **292** and using **332** as fallback. [中文安装说明](README_CN.md).
 
 **Requests pass through when no valid cached state exists.** Background acquisition continues independently and successful states are used automatically. Installation requires no plugin-specific YAML or manually entered state values.
 
@@ -22,6 +22,12 @@ The CPA instance must already have working Codex OAuth credentials. Business tra
 Dashboard: `/v0/resource/plugins/codex-turn-state-manager/status`. It reuses same-origin saved CPA login; a separately entered key is remembered after successful verification. The management API still requires authentication. Browser storage uses reversible obfuscation, not encryption.
 
 Alternatively, download the Linux amd64 ZIP from [Releases](https://github.com/jinshenganyuci/cpa-codex-turn-state-manager/releases), place its native library in CPA's plugin directory and enable it through CPA. Only Linux amd64 packages are published. Linux requires glibc.
+
+## Request egress display
+
+Recent probe requests show the saved proxy name with the observed egress IP beneath it. After a probe, an unauthenticated request to `https://chatgpt.com/cdn-cgi/trace` may reuse the exact same TLS connection. The lookup cannot redial or follow redirects; it never sends OAuth credentials or invokes another model. Each acquisition still starts a new transport, preserving rotating-proxy behavior between acquisitions.
+
+Addresses are retained per request with history. Old records, closed connections, or unavailable trace responses show an unavailable IP instead of borrowing another request's address. Business requests keep their existing routing and do not perform this lookup.
 
 ## Defaults and behavior
 

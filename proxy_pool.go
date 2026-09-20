@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -23,6 +22,7 @@ type proxyCheck struct {
 	Status       int       `json:"http_status"`
 	Milliseconds int64     `json:"latency_ms"`
 	Result       string    `json:"result"`
+	ExitIP       string    `json:"exit_ip,omitempty"`
 }
 type poolEntry struct {
 	ID            string     `json:"id"`
@@ -226,7 +226,7 @@ func (p *probeProxyPool) route(credentialURL string, now time.Time) (proxyEndpoi
 		p.cursor = uint64(i + 1)
 		e.Attempts++
 		e.LastUsed = now
-		return proxyEndpoint{URL: e.URL}, poolTicket{e.ID, e.URL}, ""
+		return proxyEndpoint{URL: e.URL, Label: e.Label}, poolTicket{e.ID, e.URL}, ""
 	}
 	return proxyEndpoint{}, poolTicket{}, "proxy_pool_unavailable"
 }
@@ -289,14 +289,12 @@ func (p *probeProxyPool) persistLocked() {
 func checkProxyConnection(ctx context.Context, endpoint proxyEndpoint) proxyCheck {
 	start := time.Now()
 	result := proxyCheck{At: start, Result: "connection_failed"}
-	transport := chainTransport(nil, endpoint)
-	defer transport.CloseIdleConnections()
-	dial := transport.DialContext
-	transport.DialContext = func(_ context.Context, network, address string) (net.Conn, error) { return dial(ctx, network, address) }
-	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	client := newProbeHTTPClient(ctx, nil, endpoint)
+	defer client.transport.CloseIdleConnections()
+
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://chatgpt.com/backend-api/codex/responses", nil)
 	if err == nil {
-		response, errCall := client.Do(request)
+		response, errCall := client.do(request)
 		if errCall == nil {
 			result.Connected = true
 			result.Status = response.StatusCode
@@ -310,7 +308,7 @@ func checkProxyConnection(ctx context.Context, endpoint proxyEndpoint) proxyChec
 			if response.StatusCode >= 500 {
 				result.Result = "upstream_unavailable"
 			}
-			_ = response.Body.Close()
+			result.ExitIP = client.finish(ctx, response)
 		}
 	}
 	if ctx.Err() != nil {

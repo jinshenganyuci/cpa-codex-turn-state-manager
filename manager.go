@@ -29,6 +29,8 @@ type observation struct {
 	CacheAction string `json:"cache_action,omitempty"`
 	StateSource string `json:"state_source,omitempty"`
 	ProxyID     string `json:"proxy_id,omitempty"`
+	ProxyLabel  string `json:"proxy_label,omitempty"`
+	ExitIP      string `json:"exit_ip,omitempty"`
 	credentialDisplay
 	RequestedModel      string    `json:"requested_model"`
 	ResponseModel       string    `json:"response_model"`

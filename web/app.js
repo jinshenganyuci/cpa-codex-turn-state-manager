@@ -230,7 +230,16 @@ async function refresh() {
       const recovered=({active:'已入库',upgraded_292:'已升级为 292',standby:'已收为备用',duplicate:'重复值',older:'较旧值',lower_priority:'保留优先值'})[e.cache_action];
       const acceptance=({model_mismatch:'模型不一致，未入库',model_evidence_missing:'缺少模型证据',state_rejected:'状态未通过验收',accepted:'验收通过',ok:'验收通过'})[e.acceptance];
       cell(row,recovered ? sourceName(e.state_source)+' · '+recovered : acceptance || '—');
-      cell(row, e.action === 'probe' ? (poolData.entries.find(p => p.id === e.proxy_id)?.label || (e.proxy_id ? '已移除代理' : '凭据代理')) : 'CPA 凭据代理');
+      const exit = cell(row, ''); exit.className = 'request-exit';
+      const exitName = document.createElement('div');
+      exitName.textContent = e.action === 'probe' ? (e.proxy_label || poolData.entries.find(p => p.id === e.proxy_id)?.label || (e.proxy_id ? '已移除代理' : '凭据代理')) : 'CPA 凭据代理';
+      exit.append(exitName);
+      if (e.action === 'probe') {
+        const ip = document.createElement('small'); ip.className = 'credential-detail exit-ip';
+        ip.textContent = e.exit_ip || 'IP 未获取';
+        ip.title = e.exit_ip ? '该次探测同一连接观测到的出口 IP' : '历史记录未采集，或未能通过同一连接确认出口 IP';
+        exit.append(ip);
+      }
       cell(row, ({observe: '观察', probe: '探测', replaced: '已替换', would_replace: '模拟替换', blocked: '已拦截'})[e.action] || e.action);
       cell(row, e.action === 'blocked' ? '未发送上游' : e.success ? '完整成功' : '未成功', 'badge' + (e.success ? '' : ' failed')); $('history').append(row);
     }

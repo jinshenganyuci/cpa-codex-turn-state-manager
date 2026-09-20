@@ -210,6 +210,8 @@ func TestHistoryAndStandbySurviveReload(t *testing.T) {
 	state.recordLocked(key, 292, true, "replaced", "medium")
 	state.history[0].Acceptance = "accepted"
 	state.history[0].StateSource = "business"
+	state.history[0].ExitIP = "203.0.113.24"
+	state.history[0].ProxyLabel = "Saved proxy label"
 	state.journalRevision++
 	state.flushPersistence()
 	for _, p := range []string{state.config.StateFile, state.config.RuntimeFile} {
@@ -232,6 +234,9 @@ func TestHistoryAndStandbySurviveReload(t *testing.T) {
 	t.Cleanup(reloaded.shutdown)
 	if len(reloaded.history) != 1 || reloaded.standby[key].Source != "business" {
 		t.Fatal("runtime history or standby lost on reload")
+	}
+	if reloaded.history[0].ExitIP != "203.0.113.24" || reloaded.history[0].ProxyLabel != "Saved proxy label" {
+		t.Fatal("historical egress or proxy label lost on reload")
 	}
 	status, err := reloaded.statusResponse()
 	if err != nil {

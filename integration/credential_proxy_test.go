@@ -18,7 +18,7 @@ func TestRealCPARetiredProxyPoolCannotOverrideCredentialMode(t *testing.T) {
 	await(t, func() bool {
 		code, raw = h.call(t, "GET", "/v0/management/codex-turn-state-manager/status", nil, managementKey)
 		var status map[string]any
-		return code == 200 && json.Unmarshal(raw, &status) == nil && status["version"] == "0.3.1" && status["proxy_mode"] == "credential" && status["probe_parallel"] == true && status["proxies"] == nil
+		return code == 200 && json.Unmarshal(raw, &status) == nil && status["version"] == "0.3.2" && status["proxy_mode"] == "credential" && status["probe_parallel"] == true && status["proxies"] == nil
 	})
 	code, _ = h.call(t, "POST", "/v0/management/codex-turn-state-manager/proxy", []byte(`{"action":"enable","id":"old"}`), managementKey)
 	if code != 404 {

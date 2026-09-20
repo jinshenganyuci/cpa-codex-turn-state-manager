@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -253,7 +252,9 @@ func (state *runtimeState) runProbe(task *probeTask) {
 			state.mu.Lock()
 			state.probeCounts[authID]++
 			state.mu.Unlock()
-			value, status, responseModel := state.fetch(ctx, auth, model, nil, endpoint)
+			observedEgress := &probeEgress{}
+			fetchCtx := context.WithValue(ctx, probeEgressKey{}, observedEgress)
+			value, status, responseModel := state.fetch(fetchCtx, auth, model, nil, endpoint)
 			outcome = status
 			parsed, parseErr := parseTurnState(value, cfg.MaxStateBytes)
 			if status == "ok" {
@@ -286,6 +287,8 @@ func (state *runtimeState) runProbe(task *probeTask) {
 			row.ResponseModel = responseModel
 			row.StateSource = "probe"
 			row.ProxyID = ticket.ID
+			row.ProxyLabel = endpoint.Label
+			row.ExitIP = observedEgress.IP
 			row.Acceptance = outcome
 			if responseModel != "" {
 				row.ResponseModelSource = "upstream.probe.response.model"
@@ -357,15 +360,9 @@ func fetchProbe(ctx context.Context, auth probeAuth, model string, first *proxyE
 		"model": model, "reasoning": map[string]string{"effort": "medium"}, "stream": true, "store": false, "instructions": "Reply with OK only.",
 		"input": []any{map[string]any{"role": "user", "content": []any{map[string]string{"type": "input_text", "text": "ping"}}}},
 	})
-	transport := chainTransport(first, second)
-	dial := transport.DialContext
-	// net/http can detach its dial context from request cancellation. Bind the
-	// SOCKS/CONNECT handshake to explicit cancellation; no response deadline is set.
-	transport.DialContext = func(_ context.Context, network, address string) (net.Conn, error) {
-		return dial(ctx, network, address)
-	}
-	defer transport.CloseIdleConnections()
-	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	client := newProbeHTTPClient(ctx, first, second)
+	defer client.transport.CloseIdleConnections()
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://chatgpt.com/backend-api/codex/responses", bytes.NewReader(body))
 	if err != nil {
 		return "", "request_invalid", ""
@@ -379,11 +376,16 @@ func fetchProbe(ctx context.Context, auth probeAuth, model string, first *proxyE
 	req.Header.Set("OpenAI-Beta", "responses=experimental")
 	req.Header.Set("Originator", "codex_cli_rs")
 	req.Header.Set("User-Agent", "codex_cli_rs/0.154.0")
-	resp, err := client.Do(req)
+	resp, err := client.do(req)
 	if err != nil {
 		return "", "network_error", ""
 	}
-	defer resp.Body.Close()
+	defer func() {
+		ip := client.finish(ctx, resp)
+		if observed, ok := ctx.Value(probeEgressKey{}).(*probeEgress); ok {
+			observed.IP = ip
+		}
+	}()
 	if resp.StatusCode != 200 {
 		status := "upstream_http_" + httpStatus(resp.StatusCode)
 		var failure struct {
