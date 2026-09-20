@@ -4,9 +4,9 @@
     {
       "id": "codex-turn-state-manager",
       "name": "回合状态管理",
-      "description": "自动采集并缓存 292/332，292 优先，获取到有效 292 或 332 即暂停，到期前刷新；可选独立探测代理池，业务沿用凭据代理；不同凭据与模型并行获取。无有效缓存时默认放行，安装后在 UI 勾选即可使用。",
+      "description": "自动采集并缓存 292/332，292 优先，获取到有效 292 或 332 即暂停，到期前刷新；可选独立探测代理池，业务沿用凭据代理；每凭据默认 3 路代理并发，可在 UI 自定义；优先轮换上轮遗漏代理。无有效缓存时默认放行，安装后在 UI 勾选即可使用。",
       "author": "jinshenganyuci",
-      "version": "0.3.3",
+      "version": "0.3.4",
       "repository": "https://github.com/jinshenganyuci/cpa-codex-turn-state-manager",
       "homepage": "https://github.com/jinshenganyuci/cpa-codex-turn-state-manager/blob/main/README_CN.md",
       "license": "MIT",

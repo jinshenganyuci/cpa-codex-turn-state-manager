@@ -20,7 +20,7 @@ import (
 
 const (
 	pluginName        = "codex-turn-state-manager"
-	pluginVersion     = "0.3.3"
+	pluginVersion     = "0.3.4"
 	pluginSchema      = uint32(4)
 	pluginABIVersion  = uint32(1)
 	defaultMaxBytes   = 4096
@@ -115,71 +115,73 @@ type stateCandidate struct {
 }
 
 type runtimeState struct {
-	pool             *probeProxyPool
-	storageDir       string
-	journalMu        sync.Mutex
-	standby          map[string]storedState
-	runtimeLoaded    string
-	persistenceError string
-	journalRevision  uint64
-	journalSaved     uint64
-	slotsRevision    uint64
-	slotsSaved       uint64
-	mu               sync.Mutex
-	persistMu        sync.Mutex
-	selectionMu      sync.Mutex
-	scheduleMu       sync.Mutex
-	schedulePath     string
-	schedule         acquisitionSchedule
-	selection        selectionPolicy
-	now              func() time.Time
-	accepting        bool
-	config           pluginConfig
-	current          map[string]storedState
-	requests         map[string]requestBinding
-	candidates       map[string]stateCandidate
-	hostCall         func(string, any, any) error
-	probeCtx         context.Context
-	probeCancel      context.CancelFunc
-	generation       uint64
-	probing          map[string]bool
-	lastProbe        map[string]time.Time
-	probeResults     map[string]string
-	fetch            func(context.Context, probeAuth, string, *proxyEndpoint, proxyEndpoint) (string, string, string)
-	workerDone       chan struct{}
-	wake             chan struct{}
-	refreshRequests  map[string]string
-	probeReasons     map[string]string
-	blockedUntil     map[string]time.Time
-	history          []observation
-	probeCounts      map[string]int
-	budgetStart      time.Time
-	activeCancels    map[string]context.CancelFunc
-	probeWG          sync.WaitGroup
-	observed         map[string]int
+	pool               *probeProxyPool
+	storageDir         string
+	journalMu          sync.Mutex
+	standby            map[string]storedState
+	runtimeLoaded      string
+	persistenceError   string
+	journalRevision    uint64
+	journalSaved       uint64
+	slotsRevision      uint64
+	slotsSaved         uint64
+	mu                 sync.Mutex
+	persistMu          sync.Mutex
+	selectionMu        sync.Mutex
+	scheduleMu         sync.Mutex
+	schedulePath       string
+	schedule           acquisitionSchedule
+	selection          selectionPolicy
+	now                func() time.Time
+	accepting          bool
+	config             pluginConfig
+	current            map[string]storedState
+	requests           map[string]requestBinding
+	candidates         map[string]stateCandidate
+	hostCall           func(string, any, any) error
+	probeCtx           context.Context
+	probeCancel        context.CancelFunc
+	generation         uint64
+	probing            map[string]bool
+	credentialInFlight map[string]int
+	lastProbe          map[string]time.Time
+	probeResults       map[string]string
+	fetch              func(context.Context, probeAuth, string, *proxyEndpoint, proxyEndpoint) (string, string, string)
+	workerDone         chan struct{}
+	wake               chan struct{}
+	refreshRequests    map[string]string
+	probeReasons       map[string]string
+	blockedUntil       map[string]time.Time
+	history            []observation
+	probeCounts        map[string]int
+	budgetStart        time.Time
+	activeCancels      map[string]context.CancelFunc
+	probeWG            sync.WaitGroup
+	observed           map[string]int
 }
 
 var runtime = newRuntimeState()
 
 func newRuntimeState() *runtimeState {
 	return &runtimeState{
-		pool:            newProbeProxyPool(),
-		activeCancels:   make(map[string]context.CancelFunc),
-		standby:         make(map[string]storedState),
-		selection:       emptySelection(),
-		now:             time.Now,
-		observed:        make(map[string]int),
-		probeCounts:     make(map[string]int),
-		fetch:           fetchProbe,
-		current:         make(map[string]storedState),
-		requests:        make(map[string]requestBinding),
-		candidates:      make(map[string]stateCandidate),
-		probing:         make(map[string]bool),
-		lastProbe:       make(map[string]time.Time),
-		probeResults:    make(map[string]string),
-		refreshRequests: make(map[string]string),
-		probeReasons:    make(map[string]string),
-		blockedUntil:    make(map[string]time.Time),
+		pool:               newProbeProxyPool(),
+		activeCancels:      make(map[string]context.CancelFunc),
+		standby:            make(map[string]storedState),
+		selection:          emptySelection(),
+		now:                time.Now,
+		observed:           make(map[string]int),
+		probeCounts:        make(map[string]int),
+		fetch:              fetchProbe,
+		current:            make(map[string]storedState),
+		requests:           make(map[string]requestBinding),
+		candidates:         make(map[string]stateCandidate),
+		probing:            make(map[string]bool),
+		credentialInFlight: make(map[string]int),
+		lastProbe:          make(map[string]time.Time),
+		probeResults:       make(map[string]string),
+		refreshRequests:    make(map[string]string),
+		probeReasons:       make(map[string]string),
+		blockedUntil:       make(map[string]time.Time),
 	}
 }
 
@@ -480,6 +482,7 @@ func (state *runtimeState) configure(raw []byte) error {
 	}
 	cfg.Probe.RefreshBeforeSeconds = schedule.RefreshBeforeSeconds
 	cfg.Probe.RetrySeconds = schedule.RetrySeconds
+	cfg.Probe.ProxyConcurrency = schedule.ProxyConcurrency
 	state.stopBackground()
 	if err := state.pool.load(cfg.ProxyPoolFile); err != nil {
 		return err
@@ -492,6 +495,7 @@ func (state *runtimeState) configure(raw []byte) error {
 	state.generation++
 	state.probeCtx, state.probeCancel = context.WithCancel(context.Background())
 	state.probing = make(map[string]bool)
+	state.credentialInFlight = make(map[string]int)
 	state.activeCancels = make(map[string]context.CancelFunc)
 	state.refreshRequests = make(map[string]string)
 	state.probeReasons = make(map[string]string)

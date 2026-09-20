@@ -30,6 +30,7 @@ plugins:
         refresh_on_errors: false
         max_attempts: 1
         max_per_hour: 6 # Used only when continuous is false; continuous has no hourly cap.
+        proxy_concurrency: 3 # Shared by all models of a credential; editable in the dashboard.
         retry_seconds: 7
-        refresh_before_seconds: 1800 # Refresh 30 minutes before expiry; the dashboard can override both timers.
+        refresh_before_seconds: 1800 # Refresh 30 minutes before expiry; the dashboard can override acquisition settings.
         quota_backoff_seconds: 900

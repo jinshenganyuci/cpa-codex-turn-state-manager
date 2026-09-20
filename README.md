@@ -1,6 +1,6 @@
 # CPA Codex Turn State Manager
 
-Native CPA plugin **0.3.3**. Acquire, privately retain and reuse Codex `X-Codex-Turn-State`, preferring **292** and using **332** as fallback. [中文安装说明](README_CN.md).
+Native CPA plugin **0.3.4**. Acquire, privately retain and reuse Codex `X-Codex-Turn-State`, preferring **292** and using **332** as fallback. [中文安装说明](README_CN.md).
 
 **Requests pass through when no valid cached state exists.** Background acquisition continues independently and successful states are used automatically. Installation requires no plugin-specific YAML or manually entered state values.
 
@@ -33,7 +33,7 @@ Addresses are retained per request with history. Old records, closed connections
 
 - Prefer accepted 292 when available. Either accepted 292 or 332 pauses acquisition until its refresh window. Later 332 cannot overwrite valid 292.
 - No-cache business requests pass through without waiting for acquisition. The legacy `block_without_state` option defaults to false.
-- Ordinary retries default to seven seconds between starts. The scheduler observes exact retry deadlines, with credential discovery at most five seconds apart. Different credential/model pairs run independently, at most one attempt per pair. Manual duplicates return immediately without a pending queue.
+- Ordinary retries default to seven seconds between starts. The scheduler observes exact retry deadlines, with credential discovery at most five seconds apart. Different credentials run independently. Each credential shares a configurable acquisition limit across its models (default three); each pair has at most one active batch. Manual duplicates or capacity limits return immediately without a pending queue.
 - Business requests keep the credential proxy. Acquisition reads it by default; enabling the dashboard proxy pool selects only enabled, available pool exits. Empty/cooling pools never fall back to a credential or direct connection.
 - Acquire with medium reasoning. Continuous mode has no total/hourly cap and consumes account quota. Authentication/rate/quota errors retain backoff; slow attempts are not overlapped for the same pair.
 - Cache only after terminal success, host completion, exact reported/executed model agreement, structural validation and timestamp checks.
@@ -49,7 +49,9 @@ Cancel stops current attempts; automatic acquisition may resume. Deselect and sa
 
 The dashboard supports add, edit, delete, enable/disable, connection tests and cooldown reset. Add a SOCKS5/SOCKS5h/HTTP/HTTPS URL, test it, then enable the pool. No additional YAML is required. The pool defaults off on first install/upgrade and does not import retired YAML pools.
 
-Only independent state acquisition selects pool routes. Normal API requests remain routed by CPA using each credential's configured proxy. Pool mutations never edit auth files or global proxy settings. Different selected credential/model pairs remain concurrent; there is no pending proxy queue or fallback when every exit is unavailable.
+Only independent state acquisition selects pool routes. Normal API requests remain routed by CPA using each credential's configured proxy. Pool mutations never edit auth files or global proxy settings. Each batch concurrently uses distinct enabled, non-cooling proxy entries, up to the shared per-credential limit. Entries omitted in the previous batch have priority; within each group, less-used entries win with random tie breaking. With A/B/C/D and a limit of three, ABC is followed by D plus two of A/B/C. Fairness is tracked independently per credential and resets on plugin reload. Fewer available entries produce a smaller batch, never duplicate routes. There is no pending request queue or fallback when every exit is unavailable.
+
+The first accepted 292 or 332 cancels unfinished sibling probes. Already-completed valid responses are retained with 292 priority; a valid cache pauses future batches until refresh. Credential errors also cancel siblings. Each issued request counts toward request budgets and may consume quota even when cancelled. With the pool off, a batch uses only the credential proxy once.
 
 Fixed exits cool for 60 seconds after three consecutive failed acquisitions. Authentication/quota errors retain credential backoff without penalizing the endpoint. Rotating exits ignore state/model rejection for endpoint cooldown but still count network failures. A rotating service must actually rotate its egress; `{session}` placeholders are supported.
 
@@ -61,9 +63,9 @@ The detail table and recent-request view show only saved selections; all eligibl
 
 ## Acquisition timing
 
-The dashboard's timing form saves both the advance window (1–59 whole minutes before expiry, default 30) and the retry interval (1–3600 whole seconds, default 7). Save applies immediately and recalculates expected refresh times; Restore defaults saves 30 minutes / 7 seconds. Valid newer standby states can postpone acquisition to their own refresh window. In-flight requests do not overlap for one pair, and authentication/quota backoff remains in force.
+The dashboard's acquisition form saves the concurrency limit (1–128 proxies per credential, default 3), the advance window (1–59 whole minutes before expiry, default 30) and the retry interval (1–3600 whole seconds, default 7). Save applies immediately and recalculates expected refresh times; Restore defaults saves 30 minutes / 7 seconds / 3 proxies. Lowering the limit affects new batches; existing requests are allowed to finish, and no new work starts while their reserved capacity exceeds the new limit. Valid newer standby states can postpone acquisition to their own refresh window. In-flight requests do not overlap for one pair, and authentication/quota backoff remains in force.
 
-Settings persist in `state_file + .schedule.json` with private permissions and revision checks. Saved UI values override `probe.refresh_before_seconds` and `probe.retry_seconds` from YAML after restart or upgrade. Without saved UI values, explicit YAML settings are preserved; otherwise the defaults apply. Failed saves leave the active settings unchanged. Page data still refreshes every five seconds, independently of probe requests.
+Settings persist in `state_file + .schedule.json` with private permissions and revision checks. Saved UI values override `probe.refresh_before_seconds`, `probe.retry_seconds` and `probe.proxy_concurrency` from YAML after restart or upgrade. Without saved UI values, explicit YAML settings are preserved; otherwise the defaults apply. Failed saves leave the active settings unchanged. Page data still refreshes every five seconds, independently of probe requests.
 
 ## Storage and upgrades
 
@@ -71,7 +73,7 @@ By default, private files live in `<CPA plugins.dir>/.codex-turn-state-manager/`
 
 Atomic files retain active/standby state, selections, the newest 200 request observations and backoff. Unix files use 0600 and private directories 0700; Windows access is governed by the storage directory's inherited ACL. Complete accepted values also remain in private archives after expiry; they are not automatically reimported. Never publish these files. The UI exposes metadata only, not raw state/OAuth tokens.
 
-**An existing explicit `block_without_state: true` is preserved during upgrade. Remove it or set it to false to adopt passthrough.** Other explicit settings and selection paths are preserved too. Cached values without captured model evidence must be reacquired under strict admission. Old proxy-pool fields are tolerated but discarded.
+**An existing explicit `block_without_state: true` is preserved during upgrade. Remove it or set it to false to adopt passthrough.** Other explicit settings and selection paths are preserved too. Cached values without captured model evidence must be reacquired under strict admission. Saved schedules from before 0.3.4 retain their timing values and inherit the new default concurrency of three.
 
 Modes: default `force` uses valid cache, `observe` only captures, `replace_only` replaces an incoming 312-length state when cache exists, and `dry_run` records without changing the request. UI mode changes last until reconfiguration/restart; credential/model selections persist. See optional [configuration](config.example.yaml).
 
@@ -81,7 +83,7 @@ The older manual `codex-turn-state` plugin is a separate project. Use one state-
 
 The state is opaque. Structural validation does not verify its signature, meaning, service tier or model capability. Neither accepted lengths nor reported model names prove reasoning quality. One hour is a local retention policy. Cross-turn replay is experimental; established WebSocket handshake headers cannot change mid-connection. The host owns OAuth refresh. No automatic account-plan priority or business proxy switching is implemented.
 
-Authenticated API: `/v0/management/codex-turn-state-manager/{status,probe,cancel,mode,selection}`. Authenticated proxy controls use POST `/v0/management/codex-turn-state-manager/proxy-pool/{mode,save,delete,reset,test}`. Static resource routes contain no credential data. HTTP/SSE final response evidence and raw WebSocket metadata are used where available; translated Chat Completions streams without original model evidence remain unknown.
+Authenticated API: `/v0/management/codex-turn-state-manager/{status,probe,cancel,mode,selection,schedule}`. Authenticated proxy controls use POST `/v0/management/codex-turn-state-manager/proxy-pool/{mode,save,delete,reset,test}`. Static resource routes contain no credential data. HTTP/SSE final response evidence and raw WebSocket metadata are used where available; translated Chat Completions streams without original model evidence remain unknown.
 
 ## Build and verify
 

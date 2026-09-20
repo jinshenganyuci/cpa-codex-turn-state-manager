@@ -74,17 +74,22 @@ func TestProxyPoolRotationCooldownAndNoCredentialFallback(t *testing.T) {
 	}
 	now := time.Now()
 	credential := "socks5://credential.invalid:1080"
-	endpoint, ticket, err := p.route(credential, now)
+	routes, err := p.routes("auth", credential, 3, now)
+	endpoint, ticket := routes[0].endpoint, routes[0].ticket
 	if err != "" || ticket.ID != "" || endpoint.URL != credential {
 		t.Fatal("disabled pool changed route")
 	}
 	a := addPoolProxy(t, p, "socks5://a.invalid:1080", false)
 	b := addPoolProxy(t, p, "socks5://b.invalid:1080", false)
 	poolChange(t, p, "mode", poolEdit{Enabled: true})
-	for _, id := range []string{a, b, a, b} {
-		_, got, err := p.route(credential, now)
-		if err != "" || got.ID != id {
-			t.Fatal("round robin route incorrect")
+	for range 2 {
+		seen := make(map[string]bool)
+		for range 2 {
+			got, reason := p.routes("auth", credential, 1, now)
+			if reason != "" || seen[got[0].ticket.ID] {
+				t.Fatal("single route did not rotate")
+			}
+			seen[got[0].ticket.ID] = true
 		}
 	}
 	for _, e := range p.data.Entries {
@@ -92,15 +97,15 @@ func TestProxyPoolRotationCooldownAndNoCredentialFallback(t *testing.T) {
 			p.finish(poolTicket{e.ID, e.URL}, "network_error", 0, now)
 		}
 	}
-	if _, _, err = p.route(credential, now); err != "proxy_pool_unavailable" {
+	if _, err = p.routes("auth", credential, 3, now); err != "proxy_pool_unavailable" {
 		t.Fatal("cooling pool fell back to credential")
 	}
-	if _, _, err = p.route(credential, now.Add(poolCooldown)); err != "" {
+	if _, err = p.routes("auth", credential, 3, now.Add(poolCooldown)); err != "" {
 		t.Fatal("cooldown did not recover")
 	}
 	poolChange(t, p, "delete", poolEdit{ID: a})
 	poolChange(t, p, "delete", poolEdit{ID: b})
-	if _, _, err = p.route(credential, now); err != "proxy_pool_unavailable" {
+	if _, err = p.routes("auth", credential, 3, now); err != "proxy_pool_unavailable" {
 		t.Fatal("empty pool fell back to credential")
 	}
 }

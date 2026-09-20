@@ -378,7 +378,7 @@ func (state *runtimeState) management(req managementRequest) ([]byte, error) {
 			reason := state.startProbe(auth.ID, body.Model, true)
 			if reason != "" {
 				code := 400
-				if reason == "probe_already_running" {
+				if reason == "probe_already_running" || reason == "credential_probe_limit" {
 					code = 409
 				}
 				if reason == "probe_retry_later" {
@@ -487,5 +487,5 @@ func (state *runtimeState) statusResponse() ([]byte, error) {
 			}
 		}
 	}
-	return managementJSON(200, map[string]any{"selection": state.selectionViewLocked(listing), "schedule": state.scheduleViewLocked(), "version": pluginVersion, "prefer_292": enabledByDefault(state.config.Prefer292), "require_model_match": enabledByDefault(state.config.RequireModelMatch), "standby_enabled": enabledByDefault(state.config.StandbyEnabled), "history_persistent": state.config.RuntimeFile != "", "persistence_error": state.persistenceError, "mode": state.config.Mode, "dry_run": state.config.DryRun, "block_without_state": state.config.BlockWithoutState, "blocking_active": state.blockWithoutStateLocked(), "probe_parallel": true, "probe_enabled": state.config.Probe.Enabled, "continuous": state.config.Probe.Enabled && state.config.Probe.Continuous, "retry_seconds": state.config.Probe.RetrySeconds, "background_refresh": state.config.Probe.Enabled && (state.config.Probe.Continuous || enabledByDefault(state.config.Probe.BackgroundRefresh)), "refresh_before_seconds": state.config.Probe.RefreshBeforeSeconds, "proxy_pool": poolView, "proxy_mode": proxyMode, "reasoning_effort": state.config.Probe.ReasoningEffort, "max_per_hour": limit, "valid_count": validCount, "entries": entries, "history": history})
+	return managementJSON(200, map[string]any{"selection": state.selectionViewLocked(listing), "schedule": state.scheduleViewLocked(), "version": pluginVersion, "prefer_292": enabledByDefault(state.config.Prefer292), "require_model_match": enabledByDefault(state.config.RequireModelMatch), "standby_enabled": enabledByDefault(state.config.StandbyEnabled), "history_persistent": state.config.RuntimeFile != "", "persistence_error": state.persistenceError, "mode": state.config.Mode, "dry_run": state.config.DryRun, "block_without_state": state.config.BlockWithoutState, "blocking_active": state.blockWithoutStateLocked(), "probe_parallel": true, "proxy_concurrency": state.config.Probe.ProxyConcurrency, "probe_enabled": state.config.Probe.Enabled, "continuous": state.config.Probe.Enabled && state.config.Probe.Continuous, "retry_seconds": state.config.Probe.RetrySeconds, "background_refresh": state.config.Probe.Enabled && (state.config.Probe.Continuous || enabledByDefault(state.config.Probe.BackgroundRefresh)), "refresh_before_seconds": state.config.Probe.RefreshBeforeSeconds, "proxy_pool": poolView, "proxy_mode": proxyMode, "reasoning_effort": state.config.Probe.ReasoningEffort, "max_per_hour": limit, "valid_count": validCount, "entries": entries, "history": history})
 }

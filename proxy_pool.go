@@ -6,8 +6,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	mathrand "math/rand/v2"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -49,15 +51,20 @@ type probeProxyPool struct {
 	mu               sync.Mutex
 	path             string
 	data             poolFile
-	cursor           uint64
+	selections       map[string]*proxySelection
 	testing          map[string]bool
 	persistenceError string
 	check            func(context.Context, proxyEndpoint) proxyCheck
 }
 type poolTicket struct{ ID, URL string }
 
+type proxySelection struct {
+	uses     map[string]uint64
+	previous map[string]bool
+}
+
 func newProbeProxyPool() *probeProxyPool {
-	return &probeProxyPool{data: poolFile{Version: 1, Entries: []poolEntry{}}, testing: make(map[string]bool), check: checkProxyConnection}
+	return &probeProxyPool{data: poolFile{Version: 1, Entries: []poolEntry{}}, testing: make(map[string]bool), selections: make(map[string]*proxySelection), check: checkProxyConnection}
 }
 func validPoolURL(raw string) bool {
 	if len(raw) == 0 || len(raw) > 8192 || strings.ContainsAny(raw, "\r\n\t") {
@@ -87,6 +94,7 @@ func (p *probeProxyPool) load(path string) error {
 		seen[e.ID] = true
 	}
 	p.path, p.data = path, data
+	p.selections = make(map[string]*proxySelection)
 	return nil
 }
 func (p *probeProxyPool) view() map[string]any {
@@ -201,35 +209,93 @@ func (p *probeProxyPool) edit(action string, b poolEdit) (int, string) {
 	return 200, ""
 }
 
-// Only the independent acquisition path asks the pool for a route.
-// An enabled but empty/cooling pool never falls back to a credential or direct connection.
-func (p *probeProxyPool) route(credentialURL string, now time.Time) (proxyEndpoint, poolTicket, string) {
+// Fairness is per credential, independent of other accounts' acquisition traffic.
+// Previously unused entries win, then least-used entries with random tie breaking.
+func (p *probeProxyPool) routes(auth, credentialURL string, limit int, now time.Time) ([]probeRoute, string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if !p.data.Enabled {
 		endpoint := proxyEndpoint{URL: strings.TrimSpace(credentialURL)}
 		if endpoint.URL == "" {
-			return endpoint, poolTicket{}, "credential_proxy_required"
+			return nil, "credential_proxy_required"
 		}
 		if _, err := endpoint.resolve(); err != nil {
-			return endpoint, poolTicket{}, "proxy_invalid"
+			return nil, "proxy_invalid"
 		}
-		return endpoint, poolTicket{}, ""
+		return []probeRoute{{endpoint: endpoint}}, ""
 	}
-	n := len(p.data.Entries)
-	for offset := 0; offset < n; offset++ {
-		i := (int(p.cursor%uint64(n)) + offset) % n
-		e := &p.data.Entries[i]
-		if !e.Enabled || now.Before(e.CooldownUntil) {
-			continue
+	indices := make([]int, 0, len(p.data.Entries))
+	for i, e := range p.data.Entries {
+		if e.Enabled && !now.Before(e.CooldownUntil) {
+			indices = append(indices, i)
 		}
-		p.cursor = uint64(i + 1)
+	}
+	if len(indices) == 0 || limit < 1 {
+		return nil, "proxy_pool_unavailable"
+	}
+	selection := p.selections[auth]
+	if selection == nil {
+		if len(p.selections) >= 4096 {
+			p.selections = make(map[string]*proxySelection)
+		}
+		selection = &proxySelection{uses: make(map[string]uint64), previous: make(map[string]bool)}
+		p.selections[auth] = selection
+	}
+	existing := make(map[string]bool, len(p.data.Entries))
+	for _, entry := range p.data.Entries {
+		existing[entry.ID] = true
+	}
+	for id := range selection.uses {
+		if !existing[id] {
+			delete(selection.uses, id)
+			delete(selection.previous, id)
+		}
+	}
+	mathrand.Shuffle(len(indices), func(i, j int) { indices[i], indices[j] = indices[j], indices[i] })
+	sort.SliceStable(indices, func(i, j int) bool {
+		a, b := p.data.Entries[indices[i]].ID, p.data.Entries[indices[j]].ID
+		if selection.previous[a] != selection.previous[b] {
+			return !selection.previous[a]
+		}
+		return selection.uses[a] < selection.uses[b]
+	})
+	selection.previous = make(map[string]bool)
+	if limit > len(indices) {
+		limit = len(indices)
+	}
+	routes := make([]probeRoute, 0, limit)
+	for _, i := range indices[:limit] {
+		e := &p.data.Entries[i]
+		selection.uses[e.ID]++
+		selection.previous[e.ID] = true
 		e.Attempts++
 		e.LastUsed = now
-		return proxyEndpoint{URL: e.URL, Label: e.Label}, poolTicket{e.ID, e.URL}, ""
+		routes = append(routes, probeRoute{endpoint: proxyEndpoint{URL: e.URL, Label: e.Label}, ticket: poolTicket{e.ID, e.URL}})
 	}
-	return proxyEndpoint{}, poolTicket{}, "proxy_pool_unavailable"
+	return routes, ""
 }
+
+func (p *probeProxyPool) batchCapacity(limit int, now time.Time) int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !p.data.Enabled {
+		return 1
+	}
+	available := 0
+	for _, e := range p.data.Entries {
+		if e.Enabled && !now.Before(e.CooldownUntil) {
+			available++
+		}
+	}
+	if available == 0 {
+		return 1
+	}
+	if available < limit {
+		return available
+	}
+	return limit
+}
+
 func credentialProbeFailure(result string) bool {
 	for _, s := range []string{"401", "403", "429", "usage_limit", "quota", "invalid_api_key"} {
 		if strings.Contains(result, s) {

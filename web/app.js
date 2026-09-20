@@ -4,7 +4,7 @@ const $ = id => document.getElementById(id);
 let poolData = {enabled:false, revision:0, entries:[]}, poolSaving = false, editingProxy = '', proxyEditRevision = 0;
 let key = '', keySource = '', busy = false, saving = false, selectionDirty = false, selectionRevision = 0;
 let scheduleRevision = 0, scheduleDirty = false, scheduleSaving = false, scheduleReady = false;
-let scheduleDefaults = {advance:30, retry:7};
+let scheduleDefaults = {advance:30, retry:7, concurrency:3};
 const loginStorageKey = 'cpa-turn-state-manager.auth.v1';
 const panelStorageKey = 'cli-proxy-auth';
 const storagePrefix = 'enc::v1::';
@@ -54,7 +54,7 @@ function clearLogin(forget = true) {
   }
   key = ''; keySource = ''; selectionDirty = false; selectionRevision = 0;
   scheduleReady = false; scheduleDirty = false; scheduleRevision = 0;
-  for (const id of ['advanceMinutes','retrySeconds','saveSchedule','resetSchedule','reloadSchedule']) $(id).disabled = true;
+  for (const id of ['advanceMinutes','retrySeconds','proxyConcurrency','saveSchedule','resetSchedule','reloadSchedule']) $(id).disabled = true;
   $('scheduleNote').textContent = '等待连接。';
   $('key').value = ''; $('modelChoices').replaceChildren(); $('credentialChoices').replaceChildren();
   $('accounts').replaceChildren(); $('history').replaceChildren(); $('proxyRows').replaceChildren();
@@ -82,7 +82,8 @@ async function restoreLogin() {
 const modeNames = {observe: '只观察', replace_only: '仅替换 312', force: '优先使用有效缓存'};
 const selectionErrors = {
   schedule_changed_reload: '时间设置已被其他窗口修改，请点击“重新载入”后再保存。',
-  invalid_schedule: '请输入 1–59 的整数分钟和 1–3600 的整数秒。',
+  invalid_schedule: '请输入 1–59 的整数分钟、1–3600 的整数秒和 1–128 的代理并发数。',
+  credential_probe_limit: '此凭据的探测并发已满，请稍后再试；不会加入请求队列。',
   schedule_save_failed: '保存失败，当前设置未改变，请检查服务器保存目录。',
   selection_changed_reload_before_saving: '其他窗口已修改选择，请重新载入后再保存。',
   selection_persistence_not_enabled: '当前实例没有启用勾选范围的持久保存。',
@@ -218,7 +219,7 @@ async function refresh() {
       button.addEventListener('click', async () => {
         button.disabled = true;
         let message = '';
-        try { await api('/probe', {account: e.account, model: e.model}); message = '已开始获取，其他模型和凭据可同时获取。'; }
+        try { await api('/probe', {account: e.account, model: e.model}); message = '已开始获取；同一凭据的模型共享代理并发上限。'; }
         catch (err) { message = err.message; }
         await refresh();
         if (message) notice(message);
@@ -237,7 +238,7 @@ async function refresh() {
       if (e.response_model && e.model && e.response_model !== e.model) actualModel.className = 'model-different';
       cell(row, e.reasoning || '—'); cell(row, e.length || '未返回');
       const recovered=({active:'已入库',upgraded_292:'已升级为 292',standby:'已收为备用',duplicate:'重复值',older:'较旧值',lower_priority:'保留优先值'})[e.cache_action];
-      const acceptance=({model_mismatch:'模型不一致，未入库',model_evidence_missing:'缺少模型证据',state_rejected:'状态未通过验收',accepted:'验收通过',ok:'验收通过'})[e.acceptance];
+      const acceptance=({model_mismatch:'模型不一致，未入库',model_evidence_missing:'缺少模型证据',state_rejected:'状态未通过验收',accepted:'验收通过',ok:'验收通过',cancelled:'已取消'})[e.acceptance];
       cell(row,recovered ? sourceName(e.state_source)+' · '+recovered : acceptance || '—');
       const exit = cell(row, ''); exit.className = 'request-exit';
       const exitName = document.createElement('div');
@@ -250,10 +251,10 @@ async function refresh() {
         exit.append(ip);
       }
       cell(row, ({observe: '观察', probe: '探测', replaced: '已替换', would_replace: '模拟替换', blocked: '已拦截'})[e.action] || e.action);
-      cell(row, e.action === 'blocked' ? '未发送上游' : e.success ? '完整成功' : '未成功', 'badge' + (e.success ? '' : ' failed')); $('history').append(row);
+      cell(row, e.action === 'blocked' ? '未发送上游' : e.acceptance === 'cancelled' ? '已取消' : e.success ? '完整成功' : '未成功', 'badge' + (e.success ? '' : ' failed')); $('history').append(row);
     }
     notice('已连接 · 代理策略：' + (data.proxy_mode === 'pool' ? '插件获取走代理池；业务使用各凭据设置中的代理' : '使用各凭据设置中的代理')
-      + (data.continuous ? ' · 各组合并行获取，重试间隔 ' + data.retry_seconds + ' 秒' : '') + ' · 更新时间 ' + new Date().toLocaleTimeString());
+      + (data.continuous ? ' · 每个凭据最多 ' + (data.proxy_concurrency ?? 3) + ' 路并发，重试间隔 ' + data.retry_seconds + ' 秒' : '') + ' · 更新时间 ' + new Date().toLocaleTimeString());
     return true;
   } catch (err) { notice(err.message); }
   finally { busy = false; }
@@ -358,7 +359,7 @@ $('proxyForm').addEventListener('submit',async event=>{
  const body={revision:proxyEditRevision,id:editingProxy,label:$('proxyLabel').value.trim(),url:$('proxyURL').value.trim(),enabled:$('proxyEnabled').checked,rotating:$('proxyRotating').checked};
  try {
   await api('/proxy-pool/save',body);$('proxyForm').reset();$('proxyForm').hidden=true;editingProxy='';
-  await refresh();$('poolNotice').textContent='代理已保存。'+(poolData.enabled?'后续获取会按池中可用出口轮询。':'可以先测试连通性，再点击“启用代理池”。');
+  await refresh();$('poolNotice').textContent='代理已保存。'+(poolData.enabled?'后续获取会优先轮换到上轮未使用的代理，再随机补足并发数。':'可以先测试连通性，再点击“启用代理池”。');
  }catch(err){$('poolNotice').textContent=err.message;}
  finally{poolSaving=false;$('saveProxy').disabled=false;renderPool(poolData);}
 });
@@ -366,33 +367,35 @@ $('proxyForm').addEventListener('submit',async event=>{
 function renderSchedule(data) {
   if (!data || scheduleDirty || scheduleSaving || data.revision < scheduleRevision) return;
   scheduleReady = true; scheduleRevision = data.revision;
-  scheduleDefaults = {advance:data.default_advance_minutes, retry:data.default_retry_seconds};
+  scheduleDefaults = {advance:data.default_advance_minutes, retry:data.default_retry_seconds, concurrency:data.default_proxy_concurrency ?? 3};
   $('advanceMinutes').value = data.advance_minutes;
   $('retrySeconds').value = data.retry_seconds;
+  $('proxyConcurrency').value = data.proxy_concurrency ?? 3;
+  $('proxyConcurrency').disabled = false;
   $('advanceMinutes').disabled = false; $('retrySeconds').disabled = false;
   $('saveSchedule').disabled = true; $('resetSchedule').disabled = false; $('reloadSchedule').disabled = false;
-  $('scheduleNote').textContent = '当前：到期前 ' + data.advance_minutes + ' 分钟获取，重试间隔 ' + data.retry_seconds + ' 秒。设置会保存，预计刷新时间随之更新。';
+  $('scheduleNote').textContent = '当前：到期前 ' + data.advance_minutes + ' 分钟获取，重试间隔 ' + data.retry_seconds + ' 秒，每个凭据最多 ' + (data.proxy_concurrency ?? 3) + ' 路并发。设置会保存，预计刷新时间随之更新。';
 }
-for (const id of ['advanceMinutes','retrySeconds']) $(id).addEventListener('input', () => {
+for (const id of ['advanceMinutes','retrySeconds','proxyConcurrency']) $(id).addEventListener('input', () => {
   scheduleDirty = true; $('saveSchedule').disabled = !scheduleReady || scheduleSaving;
-  $('scheduleNote').textContent = '有未保存的时间设置，点击“保存设置”后生效。';
+  $('scheduleNote').textContent = '有未保存的获取设置，点击“保存设置”后生效。';
 });
-async function saveScheduleValues(advance, retry) {
+async function saveScheduleValues(advance, retry, concurrency) {
   if (scheduleSaving || !scheduleReady) return;
-  if (!Number.isInteger(advance) || advance < 1 || advance > 59 || !Number.isInteger(retry) || retry < 1 || retry > 3600) {
-    $('scheduleNote').textContent = '请输入 1–59 的整数分钟和 1–3600 的整数秒。'; return;
+  if (!Number.isInteger(advance) || advance < 1 || advance > 59 || !Number.isInteger(retry) || retry < 1 || retry > 3600 || !Number.isInteger(concurrency) || concurrency < 1 || concurrency > 128) {
+    $('scheduleNote').textContent = '请输入 1–59 的整数分钟、1–3600 的整数秒和 1–128 的代理并发数。'; return;
   }
   scheduleSaving = true;
-  for (const id of ['advanceMinutes','retrySeconds','saveSchedule','resetSchedule','reloadSchedule']) $(id).disabled = true;
+  for (const id of ['advanceMinutes','retrySeconds','proxyConcurrency','saveSchedule','resetSchedule','reloadSchedule']) $(id).disabled = true;
   let error = '', savedSchedule = null;
   try {
-    const data = await api('/schedule', {revision:scheduleRevision, advance_minutes:advance, retry_seconds:retry});
+    const data = await api('/schedule', {revision:scheduleRevision, advance_minutes:advance, retry_seconds:retry, proxy_concurrency:concurrency});
     scheduleDirty = false; scheduleRevision = data.schedule.revision; savedSchedule = data.schedule;
   } catch (err) {
     error = err.message;
   } finally {
     scheduleSaving = false;
-    for (const id of ['advanceMinutes','retrySeconds','resetSchedule','reloadSchedule']) $(id).disabled = !scheduleReady;
+    for (const id of ['advanceMinutes','retrySeconds','proxyConcurrency','resetSchedule','reloadSchedule']) $(id).disabled = !scheduleReady;
     $('saveSchedule').disabled = !scheduleReady || !scheduleDirty;
   }
   if (savedSchedule && scheduleReady) renderSchedule(savedSchedule);
@@ -400,9 +403,9 @@ async function saveScheduleValues(advance, retry) {
   if (error) $('scheduleNote').textContent = error;
 }
 $('scheduleForm').addEventListener('submit', event => {
-  event.preventDefault(); saveScheduleValues(Number($('advanceMinutes').value), Number($('retrySeconds').value));
+  event.preventDefault(); saveScheduleValues(Number($('advanceMinutes').value), Number($('retrySeconds').value), Number($('proxyConcurrency').value));
 });
-$('resetSchedule').addEventListener('click', () => saveScheduleValues(scheduleDefaults.advance, scheduleDefaults.retry));
+$('resetSchedule').addEventListener('click', () => saveScheduleValues(scheduleDefaults.advance, scheduleDefaults.retry, scheduleDefaults.concurrency));
 $('reloadSchedule').addEventListener('click', async () => {
   if (scheduleSaving) return;
   scheduleDirty = false; scheduleRevision = 0; await refresh();

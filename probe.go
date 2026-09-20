@@ -30,6 +30,7 @@ type probeConfig struct {
 	Continuous           bool                       `yaml:"continuous"`
 	FirstProxy           *proxyEndpoint             `yaml:"first_proxy,omitempty"`
 	ProxyPool            []proxyEndpoint            `yaml:"proxy_pool,omitempty"`
+	ProxyConcurrency     int                        `yaml:"proxy_concurrency"`
 	RetrySeconds         int                        `yaml:"retry_seconds"`
 	RefreshBeforeSeconds int                        `yaml:"refresh_before_seconds"`
 	MaxAttempts          int                        `yaml:"max_attempts"`
@@ -55,6 +56,12 @@ func normalizeProbe(cfg *probeConfig) error {
 	}
 	if cfg.MaxPerHour < 1 || cfg.MaxPerHour > 60 {
 		return errors.New("max_per_hour must be between 1 and 60")
+	}
+	if cfg.ProxyConcurrency == 0 {
+		cfg.ProxyConcurrency = defaultProxyConcurrency
+	}
+	if cfg.ProxyConcurrency < 1 || cfg.ProxyConcurrency > maxProxyConcurrency {
+		return errors.New("proxy_concurrency must be between 1 and 128")
 	}
 	if cfg.RetrySeconds == 0 {
 		cfg.RetrySeconds = defaultProbeRetrySeconds
@@ -140,6 +147,7 @@ type probeTask struct {
 	ctx                context.Context
 	cancel             context.CancelFunc
 	generation         uint64
+	slots              int
 }
 
 // Reserve synchronously so concurrent scheduler passes cannot queue the same pair.
@@ -179,6 +187,12 @@ func (state *runtimeState) prepareProbe(authID, model string, manual bool) (*pro
 		state.journalRevision++
 		return nil, "probe_retry_later"
 	}
+	remainingSlots := cfg.Probe.ProxyConcurrency - state.credentialInFlight[authID]
+	if remainingSlots <= 0 {
+		return nil, "credential_probe_limit"
+	}
+	slots := state.pool.batchCapacity(remainingSlots, now)
+	state.credentialInFlight[authID] += slots
 	state.lastProbe[key] = now
 	reason := state.refreshRequests[key]
 	if manual {
@@ -196,7 +210,7 @@ func (state *runtimeState) prepareProbe(authID, model string, manual bool) (*pro
 	ctx, cancel := context.WithCancel(state.probeCtx)
 	state.activeCancels[key] = cancel
 	state.probeWG.Add(1)
-	return &probeTask{authID: authID, model: model, key: key, config: cfg, policy: policy, ctx: ctx, cancel: cancel, generation: state.generation}, ""
+	return &probeTask{authID: authID, model: model, key: key, config: cfg, policy: policy, ctx: ctx, cancel: cancel, generation: state.generation, slots: slots}, ""
 }
 
 func (state *runtimeState) startProbe(authID, model string, manual bool) string {
@@ -222,8 +236,9 @@ func (state *runtimeState) runProbe(task *probeTask) {
 	defer state.wakeBackground()
 	defer state.flushPersistence()
 	defer task.cancel()
+	defer state.releaseProbeSlots(task.authID, task.slots)
 	authID, model, key := task.authID, task.model, task.key
-	cfg, policy, ctx, generation := task.config, task.policy, task.ctx, task.generation
+	cfg, ctx, generation := task.config, task.ctx, task.generation
 	auth, err := state.selectedProbeAuth(authID)
 	if err == nil {
 		state.mu.Lock()
@@ -233,124 +248,89 @@ func (state *runtimeState) runProbe(task *probeTask) {
 			err = errors.New("credential selection no longer matches")
 		}
 	}
-	var candidate storedState
 	outcome := "auth_unavailable"
-	lastHistoryAt := time.Time{}
+	var results []probeAttempt
 	if err == nil {
-		for attempt := 0; attempt < cfg.Probe.MaxAttempts && ctx.Err() == nil; attempt++ {
-			state.mu.Lock()
-			if !cfg.Probe.Continuous && state.probeCounts[authID] >= cfg.Probe.MaxPerHour {
-				state.mu.Unlock()
-				outcome = "hourly_budget_reached"
-				break
-			}
-			state.mu.Unlock()
-			endpoint, ticket, routeError := state.pool.route(auth.ProxyURL, state.now())
-			if routeError != "" {
-				outcome = routeError
-				break
-			}
-			state.mu.Lock()
-			state.probeCounts[authID]++
-			state.mu.Unlock()
-			observedEgress := &probeEgress{}
-			fetchCtx := context.WithValue(ctx, probeEgressKey{}, observedEgress)
-			value, status, responseModel := state.fetch(fetchCtx, auth, model, nil, endpoint)
-			outcome = status
-			parsed, parseErr := parseTurnState(value, cfg.MaxStateBytes)
-			if status == "ok" {
-				if enabledByDefault(cfg.RequireModelMatch) && !modelConsistent(model, responseModel) {
-					if responseModel == "" {
-						outcome = "model_evidence_missing"
-					} else {
-						outcome = "model_mismatch"
-					}
-				} else if parseErr != nil || !normalBlockCount(policy, parsed.Blocks) || parsed.IssuedAt.After(state.now().Add(5*time.Minute)) || !state.now().Before(parsed.IssuedAt.Add(turnStateTTL)) {
-					outcome = "state_rejected"
-				}
-			}
-			if ctx.Err() != nil {
-				outcome = "cancelled"
-			}
-			if !state.pool.finish(ticket, outcome, len(value), state.now()) {
-				outcome = "proxy_changed"
-			}
-			state.mu.Lock()
-			if generation != state.generation {
-				state.mu.Unlock()
-				return
-			}
-			state.observed[key] = len(value)
-			state.recordLocked(key, len(value), status == "ok", "probe", cfg.Probe.ReasoningEffort)
-			row := &state.history[len(state.history)-1]
-			lastHistoryAt = row.At
-			row.credentialDisplay = auth.Display
-			row.ResponseModel = responseModel
-			row.StateSource = "probe"
-			row.ProxyID = ticket.ID
-			row.ProxyLabel = endpoint.Label
-			row.ExitIP = observedEgress.IP
-			row.Acceptance = outcome
-			if responseModel != "" {
-				row.ResponseModelSource = "upstream.probe.response.model"
-			}
-			state.mu.Unlock()
-			if outcome == "ok" {
-				candidate = storedState{Value: value, IssuedAt: parsed.IssuedAt, Blocks: parsed.Blocks, Identity: identityHash(authID, auth.AccountID), ResponseModel: responseModel, Source: "probe", CapturedAt: state.now()}
-				break
-			}
-			if strings.Contains(outcome, "429") || strings.Contains(outcome, "401") || strings.Contains(outcome, "403") || strings.Contains(outcome, "usage_limit") || strings.Contains(outcome, "quota") {
+		for wave := 0; wave < cfg.Probe.MaxAttempts && ctx.Err() == nil; wave++ {
+			attempts, result := state.probeWave(task, auth)
+			results = append(results, attempts...)
+			outcome = result
+			if outcome == "ok" || credentialProbeFailure(outcome) || len(attempts) == 0 {
 				break
 			}
 		}
 	}
-	if ctx.Err() != nil {
-		outcome = "cancelled"
-		candidate = storedState{}
-	}
-	if candidate.Value != "" {
-		identity, err := state.selectedIdentity(authID)
-		if err != nil || identity != candidate.Identity {
-			outcome = "identity_changed"
-			candidate = storedState{}
-		}
+	identity := identityHash(authID, auth.AccountID)
+	identityValid := true
+	if outcome == "ok" {
+		current, errIdentity := state.selectedIdentity(authID)
+		identityValid = errIdentity == nil && current == identity
 	}
 	state.mu.Lock()
 	if generation != state.generation {
 		state.mu.Unlock()
 		return
 	}
-	delete(state.probing, key)
-	if !state.identitySelectedLocked(authID, model, candidate.Identity) {
-		candidate = storedState{}
+	selected := state.identitySelectedLocked(authID, model, identity)
+	var archives []storedState
+	accepted := false
+	for _, result := range results {
+		if ctx.Err() != nil {
+			result.outcome, result.candidate = "cancelled", storedState{}
+		} else if result.candidate.Value != "" && (!identityValid || !selected) {
+			result.outcome, result.candidate = "identity_changed", storedState{}
+		}
+		cacheAction := ""
+		if state.accepting && result.candidate.Value != "" {
+			cacheAction = state.acceptStateLocked(key, result.candidate)
+			if cacheAction != "rejected" {
+				accepted = true
+				archives = append(archives, result.candidate)
+			}
+		}
+		state.observed[key] = len(result.value)
+		state.recordLocked(key, len(result.value), result.status == "ok", "probe", cfg.Probe.ReasoningEffort)
+		row := &state.history[len(state.history)-1]
+		row.At = result.completedAt
+		row.credentialDisplay = auth.Display
+		row.ResponseModel = result.responseModel
+		row.StateSource = "probe"
+		row.ProxyID = result.route.ticket.ID
+		row.ProxyLabel = result.route.endpoint.Label
+		row.ExitIP = result.exitIP
+		row.Acceptance = result.outcome
+		row.CacheAction = cacheAction
+		if result.responseModel != "" {
+			row.ResponseModelSource = "upstream.probe.response.model"
+		}
 	}
+	delete(state.probing, key)
 	delete(state.activeCancels, key)
 	delete(state.refreshRequests, key)
-	state.probeResults[key] = outcome
-	if strings.Contains(outcome, "429") || strings.Contains(outcome, "401") || strings.Contains(outcome, "403") || strings.Contains(outcome, "usage_limit_reached") || strings.Contains(outcome, "insufficient_quota") {
-		state.blockedUntil[key] = state.now().Add(time.Duration(cfg.Probe.QuotaBackoffSeconds) * time.Second)
+	if ctx.Err() != nil {
+		outcome = "cancelled"
+	} else if err == nil && (!identityValid || !selected) {
+		outcome = "identity_changed"
 	}
-	cacheAction := ""
-	if state.accepting && candidate.Value != "" {
-		cacheAction = state.acceptStateLocked(key, candidate)
+	if accepted {
+		outcome = "ok"
 		delete(state.blockedUntil, key)
+		state.observed[key] = len(state.current[key].Value)
 	}
-	for i := len(state.history) - 1; i >= 0; i-- {
-		row := &state.history[i]
-		if row.Action == "probe" && row.Model == model && row.Account == digest(authID)[:12] && row.At.Equal(lastHistoryAt) {
-			row.CacheAction = cacheAction
-			row.Acceptance = outcome
-			break
-		}
+	state.probeResults[key] = outcome
+	if probeNeedsBackoff(outcome) {
+		state.blockedUntil[key] = state.now().Add(time.Duration(cfg.Probe.QuotaBackoffSeconds) * time.Second)
 	}
 	state.journalRevision++
 	archiveDir := state.config.ArchiveDir
 	state.mu.Unlock()
-	if candidate.Value != "" && archiveState(archiveDir, key, candidate, cfg.Probe.ReasoningEffort) != nil {
-		state.mu.Lock()
-		state.probeResults[key] = "archive_failed"
-		state.journalRevision++
-		state.mu.Unlock()
+	for _, candidate := range archives {
+		if archiveState(archiveDir, key, candidate, cfg.Probe.ReasoningEffort) != nil {
+			state.mu.Lock()
+			state.probeResults[key] = "archive_failed"
+			state.journalRevision++
+			state.mu.Unlock()
+		}
 	}
 }
 
