@@ -4,7 +4,7 @@ const {chromium}=require(process.env.CPA_PLAYWRIGHT_MODULE||'playwright');
 const root=path.resolve(__dirname,'..'),prefix='/v0/resource/plugins/codex-turn-state-manager/';
 let revision=0,enabled=false,entries=[],serial=0,testRequests=0;
 const urls=new Map(),checks=[];
-const status=()=>({version:'0.3.0',mode:'force',valid_count:0,prefer_292:true,probe_enabled:true,continuous:true,retry_seconds:5,proxy_mode:enabled?'pool':'credential',reasoning_effort:'medium',selection:{required:true,persistent:true,revision:1,models:[],model_options:['gpt-6-astra'],accounts:[]},entries:[],history:[],proxy_pool:{enabled,revision,entries,persistent:true}});
+const status=()=>({version:'0.3.1',mode:'force',valid_count:0,prefer_292:true,probe_enabled:true,continuous:true,retry_seconds:15,proxy_mode:enabled?'pool':'credential',reasoning_effort:'medium',selection:{required:true,persistent:true,revision:1,models:[],model_options:['gpt-6-astra'],accounts:[]},entries:[],history:[],proxy_pool:{enabled,revision,entries,persistent:true}});
 const server=http.createServer((req,res)=>{const files={status:['index.html','text/html'],'app.js':['app.js','text/javascript'],'app.css':['app.css','text/css']};const file=files[req.url.startsWith(prefix)?req.url.slice(prefix.length):''];if(!file){res.writeHead(404);res.end();return;}res.writeHead(200,{'Content-Type':file[1]});res.end(fs.readFileSync(path.join(root,'web',file[0])));});
 (async()=>{
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));

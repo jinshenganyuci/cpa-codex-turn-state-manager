@@ -1,15 +1,5 @@
-## Linux amd64 · built locally
+后台获取 292 / 332 的默认重试间隔由 5 秒调整为 15 秒，降低持续获取频率。页面仍每 5 秒刷新状态；获取到有效 292 或 332 后暂停，接近到期再获取。
 
-- Hide unchecked credentials/models from the detail table and recent-request view. Keep all credentials in the selection controls.
-- Add a probe-only proxy pool with add, edit, delete, enable/disable, connection test and cooldown reset buttons.
-- Business API requests always keep their CPA credential proxy. Enabling the pool changes only independent state acquisition; an empty or cooling pool never falls back to the business proxy or direct access.
-- Preserve concurrent acquisition across selected pairs. Fixed exits rotate and cool for 60 seconds after three failures; account limits retain their own backoff. Rotating exits do not cool merely because of state/model rejection.
-- Test buttons send an unauthenticated HTTPS connectivity check, not a model request. Proxy passwords are never returned by status APIs; settings persist privately across reloads.
-- A valid 292 or 332 pauses acquisition until refresh. Prefer existing 292; pass business requests through when no valid cache exists.
-
-The pool defaults off on upgrade. Add proxies and enable it in the UI; no extra plugin YAML is required. Normal API credentials and their proxy settings are not edited.
-
-CPA plugin source:
-https://raw.githubusercontent.com/jinshenganyuci/cpa-codex-turn-state-manager/main/registry.json
-
-This release is built locally and uploaded directly; no automatic GitHub build is triggered.
+- 旧实例若显式配置了 `probe.retry_seconds: 5`，请改为 `15` 或删除该项以使用默认值。
+- 保留探测专用代理池、并行获取和业务请求沿用凭据代理的行为。
+- 本地构建，仅发布 Linux amd64 安装包和校验文件；未运行 GitHub Actions。

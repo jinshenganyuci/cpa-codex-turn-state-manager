@@ -1,6 +1,6 @@
 # CPA Codex Turn State Manager
 
-Native CPA plugin **0.3.0**. Acquire, privately retain and reuse Codex `X-Codex-Turn-State`, preferring **292** and using **332** as fallback. [中文安装说明](README_CN.md).
+Native CPA plugin **0.3.1**. Acquire, privately retain and reuse Codex `X-Codex-Turn-State`, preferring **292** and using **332** as fallback. [中文安装说明](README_CN.md).
 
 **Requests pass through when no valid cached state exists.** Background acquisition continues independently and successful states are used automatically. Installation requires no plugin-specific YAML or manually entered state values.
 
@@ -27,7 +27,7 @@ Alternatively, download the Linux amd64 ZIP from [Releases](https://github.com/j
 
 - Prefer accepted 292 when available. Either accepted 292 or 332 pauses acquisition until its refresh window. Later 332 cannot overwrite valid 292.
 - No-cache business requests pass through without waiting for acquisition. The legacy `block_without_state` option defaults to false.
-- Check acquisition every five seconds; ordinary retries are at least five seconds apart. Different credential/model pairs run independently, at most one attempt per pair. Manual duplicates return immediately without a pending queue.
+- Check acquisition every five seconds; ordinary retries are at least fifteen seconds apart. Different credential/model pairs run independently, at most one attempt per pair. Manual duplicates return immediately without a pending queue.
 - Business requests keep the credential proxy. Acquisition reads it by default; enabling the dashboard proxy pool selects only enabled, available pool exits. Empty/cooling pools never fall back to a credential or direct connection.
 - Acquire with medium reasoning. Continuous mode has no total/hourly cap and consumes account quota. Authentication/rate/quota errors retain backoff; slow attempts are not overlapped for the same pair.
 - Cache only after terminal success, host completion, exact reported/executed model agreement, structural validation and timestamp checks.

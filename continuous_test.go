@@ -14,7 +14,6 @@ func continuousRuntime(t *testing.T) *runtimeState {
 	state.config.Defaults.Models = []string{"gpt-6-astra"}
 	state.config.Probe.Enabled = true
 	state.config.Probe.Continuous = true
-	state.config.Probe.RetrySeconds = 10
 	state.config.Probe.MaxPerHour = 2
 	base := testHost("account-a", "socks5://proxy.invalid:1080")
 	state.hostCall = func(method string, request, result any) error {
@@ -58,7 +57,15 @@ func TestContinuousDiscoversAndRetriesUntilEitherTarget(t *testing.T) {
 				if calls != index+1 {
 					t.Fatal("retry interval ignored")
 				}
-				now = now.Add(10 * time.Second)
+				for _, advance := range []time.Duration{5 * time.Second, 9 * time.Second} {
+					now = now.Add(advance)
+					state.refreshDue(context.Background())
+					state.probeWG.Wait()
+					if calls != index+1 {
+						t.Fatal("acquisition retried before the 15-second interval")
+					}
+				}
+				now = now.Add(time.Second)
 			}
 			key := stateKey("auth-a", "gpt-6-astra")
 			if state.current[key].Blocks != blocks || state.probeCounts["auth-a"] != 8 {
@@ -116,7 +123,7 @@ func TestContinuousKeepsRateLimitBackoff(t *testing.T) {
 	}
 	state.refreshDue(context.Background())
 	state.probeWG.Wait()
-	now = now.Add(10 * time.Second)
+	now = now.Add(15 * time.Second)
 	state.refreshDue(context.Background())
 	state.probeWG.Wait()
 	if calls != 1 {

@@ -14,6 +14,8 @@ import (
 	"time"
 )
 
+const defaultProbeRetrySeconds = 15
+
 type probeConfig struct {
 	// Decode retired pool options for old configurations; normalization discards them.
 	CredentialPools      map[string][]proxyEndpoint `yaml:"credential_pools,omitempty"`
@@ -56,7 +58,7 @@ func normalizeProbe(cfg *probeConfig) error {
 		return errors.New("max_per_hour must be between 1 and 60")
 	}
 	if cfg.RetrySeconds == 0 {
-		cfg.RetrySeconds = 60
+		cfg.RetrySeconds = defaultProbeRetrySeconds
 	}
 	if cfg.RefreshBeforeSeconds == 0 {
 		cfg.RefreshBeforeSeconds = 300

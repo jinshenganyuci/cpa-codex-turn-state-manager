@@ -173,12 +173,12 @@ func TestProbeModelAcceptancePausesOn332UntilRefresh(t *testing.T) {
 	if len(state.current) != 0 || state.history[0].Acceptance != "model_mismatch" {
 		t.Fatal("mismatched probe was cached")
 	}
-	now = now.Add(5 * time.Second)
+	now = now.Add(time.Duration(state.config.Probe.RetrySeconds) * time.Second)
 	state.ensureProbe("auth-a", "gpt-6-astra")
 	if len(state.current[key].Value) != 332 {
 		t.Fatal("332 was not available as fallback")
 	}
-	now = now.Add(5 * time.Second)
+	now = now.Add(time.Duration(state.config.Probe.RetrySeconds) * time.Second)
 	state.ensureProbe("auth-a", "gpt-6-astra")
 	if calls != 2 || len(state.current[key].Value) != 332 {
 		t.Fatal("fresh 332 triggered another acquisition")
@@ -188,7 +188,7 @@ func TestProbeModelAcceptancePausesOn332UntilRefresh(t *testing.T) {
 	if calls != 3 || len(state.current[key].Value) != 292 {
 		t.Fatal("scheduled refresh failed to accept and prefer 292")
 	}
-	now = now.Add(5 * time.Second)
+	now = now.Add(time.Duration(state.config.Probe.RetrySeconds) * time.Second)
 	state.ensureProbe("auth-a", "gpt-6-astra")
 	if calls != 3 {
 		t.Fatal("fresh 292 did not pause acquisition")
@@ -292,7 +292,7 @@ func TestFresh332StandbyPostponesAcquisitionAndSurvivesActiveExpiry(t *testing.T
 			if calls != 1 {
 				t.Fatal("332 standby did not refresh near expiry")
 			}
-			now = now.Add(5 * time.Second)
+			now = now.Add(time.Duration(state.config.Probe.RetrySeconds) * time.Second)
 			state.ensureProbe("auth-a", "gpt-6-astra")
 			if calls != 1 {
 				t.Fatal("successful 332 refresh triggered another acquisition")

@@ -30,6 +30,6 @@ plugins:
         refresh_on_errors: false
         max_attempts: 1
         max_per_hour: 6 # Used only when continuous is false; continuous has no hourly cap.
-        retry_seconds: 5
+        retry_seconds: 15
         refresh_before_seconds: 300 # Refresh at age 55 minutes; stop reuse at 60.
         quota_backoff_seconds: 900
