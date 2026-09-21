@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -41,26 +42,27 @@ const (
 )
 
 type pluginConfig struct {
-	Store             yaml.Node                   `yaml:"store,omitempty"`
-	Enabled           bool                        `yaml:"enabled"`
-	Priority          int                         `yaml:"priority"`
-	AutoUpdate        *bool                       `yaml:"auto_update"`
-	Mode              string                      `yaml:"mode"`
-	DryRun            bool                        `yaml:"dry_run"`
-	BlockWithoutState bool                        `yaml:"block_without_state"`
-	RequireModelMatch *bool                       `yaml:"require_model_match"`
-	Prefer292         *bool                       `yaml:"prefer_292"`
-	StandbyEnabled    *bool                       `yaml:"standby_enabled"`
-	ProxyPoolFile     string                      `yaml:"proxy_pool_file"`
-	RuntimeFile       string                      `yaml:"runtime_file"`
-	ArchiveDir        string                      `yaml:"archive_dir"`
-	StateFile         string                      `yaml:"state_file"`
-	SelectionRequired bool                        `yaml:"selection_required"`
-	SelectionFile     string                      `yaml:"selection_file"`
-	MaxStateBytes     int                         `yaml:"max_state_bytes"`
-	Defaults          *credentialConfig           `yaml:"defaults"`
-	Credentials       map[string]credentialConfig `yaml:"credentials"`
-	Probe             probeConfig                 `yaml:"probe"`
+	Store                yaml.Node                   `yaml:"store,omitempty"`
+	Enabled              bool                        `yaml:"enabled"`
+	Priority             int                         `yaml:"priority"`
+	AutoUpdate           *bool                       `yaml:"auto_update"`
+	Mode                 string                      `yaml:"mode"`
+	DryRun               bool                        `yaml:"dry_run"`
+	BlockWithoutState    bool                        `yaml:"block_without_state"`
+	RequireModelMatch    *bool                       `yaml:"require_model_match"`
+	InvalidateOnMismatch *bool                       `yaml:"invalidate_on_mismatch"`
+	Prefer292            *bool                       `yaml:"prefer_292"`
+	StandbyEnabled       *bool                       `yaml:"standby_enabled"`
+	ProxyPoolFile        string                      `yaml:"proxy_pool_file"`
+	RuntimeFile          string                      `yaml:"runtime_file"`
+	ArchiveDir           string                      `yaml:"archive_dir"`
+	StateFile            string                      `yaml:"state_file"`
+	SelectionRequired    bool                        `yaml:"selection_required"`
+	SelectionFile        string                      `yaml:"selection_file"`
+	MaxStateBytes        int                         `yaml:"max_state_bytes"`
+	Defaults             *credentialConfig           `yaml:"defaults"`
+	Credentials          map[string]credentialConfig `yaml:"credentials"`
+	Probe                probeConfig                 `yaml:"probe"`
 }
 
 type credentialConfig struct {
@@ -260,7 +262,9 @@ type responseInterceptRequest struct {
 	Metadata        map[string]any `json:"Metadata"`
 }
 
-type responseInterceptResponse struct{}
+type responseInterceptResponse struct {
+	ClearHeaders []string `json:"ClearHeaders,omitempty"`
+}
 
 type streamChunkInterceptRequest struct {
 	RequestID       string         `json:"RequestID"`
@@ -270,7 +274,9 @@ type streamChunkInterceptRequest struct {
 	Body            []byte         `json:"Body"`
 }
 
-type streamChunkInterceptResponse struct{}
+type streamChunkInterceptResponse struct {
+	ClearHeaders []string `json:"ClearHeaders,omitempty"`
+}
 
 type requestCompletion struct {
 	RequestID  string         `json:"RequestID"`
@@ -326,6 +332,7 @@ func pluginRegistration() registration {
 				{Name: "auto_update", Type: "boolean", Description: "Promote a newer normal Fernet state after a successful request."},
 				{Name: "mode", Type: "string", Description: "force (default), observe, or replace_only. Missing cache passes through by default."},
 				{Name: "require_model_match", Type: "boolean", Description: "Require matching reported and executed models before admitting state (default true)."},
+				{Name: "invalidate_on_mismatch", Type: "boolean", Description: "Invalidate cached turn state when response model does not match requested model (default false)."},
 				{Name: "prefer_292", Type: "boolean", Description: "Prefer 292 when available; either accepted length pauses acquisition until refresh (default true)."},
 				{Name: "standby_enabled", Type: "boolean", Description: "Keep a successor for expiry handoff (default true)."},
 				{Name: "runtime_file", Type: "string", Description: "Private persistent request history and acquisition backoff."},
@@ -627,6 +634,17 @@ func (state *runtimeState) interceptAfter(raw []byte) ([]byte, error) {
 	return okEnvelope(requestInterceptResponse{Headers: http.Header{turnStateHeader: {current.Value}}})
 }
 
+// sanitizeOutboundTurnState strips a degraded (non-292/332) upstream turn state so it
+// never reaches the client. The privately retained cache is never emitted downstream.
+func sanitizeOutboundTurnState(requestID string, headers http.Header) []string {
+	val := strings.TrimSpace(headerValue(headers, turnStateHeader))
+	if val == "" || len(val) == 292 || len(val) == 332 {
+		return nil
+	}
+	log.Printf("[turn-state-manager] req %s: stripped outbound %s (upstream len=%d)", requestID, turnStateHeader, len(val))
+	return []string{turnStateHeader}
+}
+
 func (state *runtimeState) interceptResponse(raw []byte) ([]byte, error) {
 	var req responseInterceptRequest
 	if errUnmarshal := json.Unmarshal(raw, &req); errUnmarshal != nil {
@@ -634,7 +652,7 @@ func (state *runtimeState) interceptResponse(raw []byte) ([]byte, error) {
 	}
 	state.captureCandidate(req.RequestID, req.ResponseHeaders)
 	state.observeBody(req.RequestID, req.Body)
-	return okEnvelope(responseInterceptResponse{})
+	return okEnvelope(responseInterceptResponse{ClearHeaders: sanitizeOutboundTurnState(req.RequestID, req.ResponseHeaders)})
 }
 
 func (state *runtimeState) interceptStreamChunk(raw []byte) ([]byte, error) {
@@ -647,7 +665,7 @@ func (state *runtimeState) interceptStreamChunk(raw []byte) ([]byte, error) {
 	} else {
 		state.observeStreamFailure(req.RequestID, req.Body)
 	}
-	return okEnvelope(streamChunkInterceptResponse{})
+	return okEnvelope(streamChunkInterceptResponse{ClearHeaders: sanitizeOutboundTurnState(req.RequestID, req.ResponseHeaders)})
 }
 
 func (state *runtimeState) captureCandidate(requestID string, headers http.Header) {
@@ -713,7 +731,9 @@ func (state *runtimeState) complete(raw []byte) ([]byte, error) {
 		hasCandidate = false
 	}
 	if rejection == "model_mismatch" && currentIdentity == binding.Identity {
-		state.invalidateUsedStateLocked(binding)
+		if disabledByDefault(state.config.InvalidateOnMismatch) {
+			state.invalidateUsedStateLocked(binding)
+		}
 		if !state.usableSlotLocked(binding.Key, state.current[binding.Key]) {
 			state.queueRefreshLocked(binding.Key, "model_mismatch")
 		}

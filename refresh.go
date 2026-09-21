@@ -10,6 +10,7 @@ import (
 )
 
 func enabledByDefault(value *bool) bool { return value == nil || *value }
+func disabledByDefault(value *bool) bool { return value != nil && *value }
 
 // Caller holds mu. Each configuration generation owns one worker and context.
 func (state *runtimeState) startBackgroundLocked() {
