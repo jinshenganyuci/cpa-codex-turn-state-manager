@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -261,7 +262,10 @@ type responseInterceptRequest struct {
 	Metadata        map[string]any `json:"Metadata"`
 }
 
-type responseInterceptResponse struct{}
+type responseInterceptResponse struct {
+	Headers      http.Header `json:"Headers,omitempty"`
+	ClearHeaders []string    `json:"ClearHeaders,omitempty"`
+}
 
 type streamChunkInterceptRequest struct {
 	RequestID       string         `json:"RequestID"`
@@ -271,7 +275,11 @@ type streamChunkInterceptRequest struct {
 	Body            []byte         `json:"Body"`
 }
 
-type streamChunkInterceptResponse struct{}
+type streamChunkInterceptResponse struct {
+	Headers      http.Header `json:"Headers,omitempty"`
+	ClearHeaders []string    `json:"ClearHeaders,omitempty"`
+	DropChunk    bool        `json:"DropChunk,omitempty"`
+}
 
 type requestCompletion struct {
 	RequestID  string         `json:"RequestID"`
@@ -601,16 +609,33 @@ func (state *runtimeState) interceptAfter(raw []byte) ([]byte, error) {
 	if state.blockWithoutStateLocked() && (!exists || !state.usableSlotLocked(key, current)) {
 		return state.blockRequestLocked(req, key, "valid_turn_state_required")
 	}
+	incomingState := headerValue(req.Headers, turnStateHeader)
+	incomingLen := len(incomingState)
+	if incomingLen > 0 {
+		log.Printf("[turn-state-manager] req %s: inbound %s len=%d, model=%s", req.RequestID, turnStateHeader, incomingLen, req.Model)
+	}
+
 	if !exists || !state.usableSlotLocked(key, current) {
 		if state.config.Probe.OnMissing {
 			state.queueRefreshLocked(key, "missing_state")
 		}
+		if incomingLen == 312 {
+			log.Printf("[turn-state-manager] req %s: stripped dirty 312 inbound header before upstream (no usable 292)", req.RequestID)
+			return okEnvelope(requestInterceptResponse{
+				ClearHeaders: []string{turnStateHeader, strings.ToLower(turnStateHeader)},
+			})
+		}
 		return okEnvelope(requestInterceptResponse{})
 	}
 	if current.IssuedAt.After(state.now().Add(5*time.Minute)) || state.config.Mode == "observe" {
+		if incomingLen == 312 {
+			return okEnvelope(requestInterceptResponse{
+				ClearHeaders: []string{turnStateHeader, strings.ToLower(turnStateHeader)},
+			})
+		}
 		return okEnvelope(requestInterceptResponse{})
 	}
-	if state.config.Mode == "replace_only" && len(headerValue(req.Headers, turnStateHeader)) != 312 {
+	if state.config.Mode == "replace_only" && incomingLen != 312 {
 		return okEnvelope(requestInterceptResponse{})
 	}
 	binding := state.requests[req.RequestID]
@@ -626,7 +651,32 @@ func (state *runtimeState) interceptAfter(raw []byte) ([]byte, error) {
 	if state.config.DryRun {
 		return okEnvelope(requestInterceptResponse{})
 	}
-	return okEnvelope(requestInterceptResponse{Headers: http.Header{turnStateHeader: {current.Value}}})
+	log.Printf("[turn-state-manager] req %s: injected 292 turn-state into request (inbound was %d)", req.RequestID, incomingLen)
+	return okEnvelope(requestInterceptResponse{
+		ClearHeaders: []string{turnStateHeader, strings.ToLower(turnStateHeader)},
+		Headers:      http.Header{turnStateHeader: {current.Value}},
+	})
+}
+
+func (state *runtimeState) sanitizeResponseHeadersLocked(requestID string, headers http.Header) (http.Header, []string) {
+	val := strings.TrimSpace(headerValue(headers, turnStateHeader))
+	if val == "" {
+		return nil, nil
+	}
+	if len(val) == 292 || len(val) == 332 {
+		return nil, nil
+	}
+	clearList := []string{turnStateHeader, strings.ToLower(turnStateHeader)}
+	binding, exists := state.requests[requestID]
+	if exists {
+		current, hasCurrent := state.current[binding.Key]
+		if hasCurrent && state.usableSlotLocked(binding.Key, current) {
+			log.Printf("[turn-state-manager] req %s: sanitized outbound response header (upstream len=%d -> replaced with cached 292)", requestID, len(val))
+			return http.Header{turnStateHeader: {current.Value}}, clearList
+		}
+	}
+	log.Printf("[turn-state-manager] req %s: sanitized outbound response header (upstream len=%d -> stripped)", requestID, len(val))
+	return nil, clearList
 }
 
 func (state *runtimeState) interceptResponse(raw []byte) ([]byte, error) {
@@ -636,7 +686,15 @@ func (state *runtimeState) interceptResponse(raw []byte) ([]byte, error) {
 	}
 	state.captureCandidate(req.RequestID, req.ResponseHeaders)
 	state.observeBody(req.RequestID, req.Body)
-	return okEnvelope(responseInterceptResponse{})
+
+	state.mu.Lock()
+	newHeaders, clearHeaders := state.sanitizeResponseHeadersLocked(req.RequestID, req.ResponseHeaders)
+	state.mu.Unlock()
+
+	return okEnvelope(responseInterceptResponse{
+		Headers:      newHeaders,
+		ClearHeaders: clearHeaders,
+	})
 }
 
 func (state *runtimeState) interceptStreamChunk(raw []byte) ([]byte, error) {
@@ -649,7 +707,15 @@ func (state *runtimeState) interceptStreamChunk(raw []byte) ([]byte, error) {
 	} else {
 		state.observeStreamFailure(req.RequestID, req.Body)
 	}
-	return okEnvelope(streamChunkInterceptResponse{})
+
+	state.mu.Lock()
+	newHeaders, clearHeaders := state.sanitizeResponseHeadersLocked(req.RequestID, req.ResponseHeaders)
+	state.mu.Unlock()
+
+	return okEnvelope(streamChunkInterceptResponse{
+		Headers:      newHeaders,
+		ClearHeaders: clearHeaders,
+	})
 }
 
 func (state *runtimeState) captureCandidate(requestID string, headers http.Header) {
