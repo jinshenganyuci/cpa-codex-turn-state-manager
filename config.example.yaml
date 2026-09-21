@@ -8,6 +8,7 @@ plugins:
       mode: force # Use a validated cache when available; otherwise pass through.
       dry_run: false
       require_model_match: true
+      invalidate_on_mismatch: false # Do not invalidate valid cached turn state on model mismatch.
       # The optional probe-only proxy pool is managed and saved from the dashboard.
       prefer_292: true
       standby_enabled: true

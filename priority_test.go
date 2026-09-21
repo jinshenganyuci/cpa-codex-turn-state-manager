@@ -18,6 +18,7 @@ func boolSetting(value bool) *bool { return &value }
 func priorityRuntime(t *testing.T) *runtimeState {
 	state := guardedRuntime(t)
 	state.config.RequireModelMatch = boolSetting(true)
+	state.config.InvalidateOnMismatch = boolSetting(true)
 	state.config.Prefer292 = boolSetting(true)
 	state.config.StandbyEnabled = boolSetting(true)
 	state.config.Probe.Continuous = true
@@ -303,5 +304,37 @@ func TestFresh332StandbyPostponesAcquisitionAndSurvivesActiveExpiry(t *testing.T
 				t.Fatal("successful 332 refresh triggered another acquisition")
 			}
 		})
+	}
+}
+
+func TestModelMismatchPreservesValidCacheByDefault(t *testing.T) {
+	state := priorityRuntime(t)
+	// By default (InvalidateOnMismatch: nil/false), model mismatch preserves valid cache
+	state.config.InvalidateOnMismatch = nil
+	key := stateKey("auth-a", "gpt-6-astra")
+	active := acceptedState(t, state, 10, state.now().Add(-5*time.Minute), "probe")
+	state.acceptStateLocked(key, active)
+
+	begin(t, state, "req-1", "auth-a", "gpt-6-astra", "")
+	newValue := makeFernetToken(t, state.now(), 11)
+	state.captureCandidate("req-1", http.Header{turnStateHeader: {newValue}})
+	state.observeBody("req-1", jsonBytes(map[string]any{
+		"type": "response.completed",
+		"response": map[string]string{"status": "completed", "model": "gpt-5.6-luna"},
+	}))
+	finish(t, state, "req-1", "succeeded", false)
+
+	if state.standby[key].Value != "" {
+		t.Fatal("candidate state on mismatch entered standby")
+	}
+	if state.current[key].Value != active.Value {
+		t.Fatal("active 292 cache was wiped out on model mismatch")
+	}
+	resp := begin(t, state, "req-2", "auth-a", "gpt-6-astra", "")
+	if resp.Terminate {
+		t.Fatal("gate was closed despite valid active cache")
+	}
+	if resp.Headers.Get(turnStateHeader) != active.Value {
+		t.Fatalf("expected injected state %s, got %s", active.Value, resp.Headers.Get(turnStateHeader))
 	}
 }

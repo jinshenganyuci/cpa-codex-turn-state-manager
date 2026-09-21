@@ -48,8 +48,9 @@ type pluginConfig struct {
 	Mode              string                      `yaml:"mode"`
 	DryRun            bool                        `yaml:"dry_run"`
 	BlockWithoutState bool                        `yaml:"block_without_state"`
-	RequireModelMatch *bool                       `yaml:"require_model_match"`
-	Prefer292         *bool                       `yaml:"prefer_292"`
+	RequireModelMatch    *bool                       `yaml:"require_model_match"`
+	InvalidateOnMismatch *bool                       `yaml:"invalidate_on_mismatch"`
+	Prefer292            *bool                       `yaml:"prefer_292"`
 	StandbyEnabled    *bool                       `yaml:"standby_enabled"`
 	ProxyPoolFile     string                      `yaml:"proxy_pool_file"`
 	RuntimeFile       string                      `yaml:"runtime_file"`
@@ -326,6 +327,7 @@ func pluginRegistration() registration {
 				{Name: "auto_update", Type: "boolean", Description: "Promote a newer normal Fernet state after a successful request."},
 				{Name: "mode", Type: "string", Description: "force (default), observe, or replace_only. Missing cache passes through by default."},
 				{Name: "require_model_match", Type: "boolean", Description: "Require matching reported and executed models before admitting state (default true)."},
+				{Name: "invalidate_on_mismatch", Type: "boolean", Description: "Invalidate cached turn state when response model does not match requested model (default false)."},
 				{Name: "prefer_292", Type: "boolean", Description: "Prefer 292 when available; either accepted length pauses acquisition until refresh (default true)."},
 				{Name: "standby_enabled", Type: "boolean", Description: "Keep a successor for expiry handoff (default true)."},
 				{Name: "runtime_file", Type: "string", Description: "Private persistent request history and acquisition backoff."},
@@ -713,7 +715,9 @@ func (state *runtimeState) complete(raw []byte) ([]byte, error) {
 		hasCandidate = false
 	}
 	if rejection == "model_mismatch" && currentIdentity == binding.Identity {
-		state.invalidateUsedStateLocked(binding)
+		if disabledByDefault(state.config.InvalidateOnMismatch) {
+			state.invalidateUsedStateLocked(binding)
+		}
 		if !state.usableSlotLocked(binding.Key, state.current[binding.Key]) {
 			state.queueRefreshLocked(binding.Key, "model_mismatch")
 		}
