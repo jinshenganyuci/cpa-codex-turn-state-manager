@@ -84,7 +84,7 @@ func (state *runtimeState) applyStorageDefaults(cfg *pluginConfig) error {
 func defaultPluginConfig() pluginConfig {
 	return pluginConfig{
 		Enabled: true, MaxStateBytes: defaultMaxBytes, Mode: "force", SelectionRequired: true,
-		Defaults: &credentialConfig{AcceptedBlocks: []int{10, 12}, Models: []string{"gpt-6-astra", "gpt-5.6-sol"}},
+		Defaults: &credentialConfig{AcceptedBlocks: []int{10, 12}, Models: []string{"gpt-6-astra", "gpt-6-sol", "gpt-5.6-sol"}},
 		Probe:    probeConfig{Enabled: true, Continuous: true, OnMissing: true, ReasoningEffort: "medium", RetrySeconds: defaultProbeRetrySeconds, ProxyConcurrency: defaultProxyConcurrency, RefreshBeforeSeconds: defaultRefreshBeforeSeconds, MaxAttempts: 1, QuotaBackoffSeconds: 900},
 	}
 }

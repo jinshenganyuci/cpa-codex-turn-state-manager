@@ -119,7 +119,7 @@ func (state *runtimeState) acquisitionModelsLocked(policy credentialConfig) []st
 }
 
 func modelOptions(cfg pluginConfig) []string {
-	models := []string{"gpt-6-astra", "gpt-5.6-sol"}
+	models := []string{"gpt-6-astra", "gpt-6-sol", "gpt-5.6-sol"}
 	if cfg.Defaults != nil {
 		models = append(models, cfg.Defaults.Models...)
 	}

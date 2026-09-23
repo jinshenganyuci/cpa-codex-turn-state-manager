@@ -19,7 +19,7 @@ plugins:
       archive_dir: /CLIProxyAPI/private/turn-state/archive
       defaults:
         accepted_blocks: [10, 12] # 292 preferred, 332 fallback.
-        models: [gpt-6-astra, gpt-5.6-sol]
+        models: [gpt-6-astra, gpt-6-sol, gpt-5.6-sol]
       probe:
         enabled: true # Acquire asynchronously and refresh before expiry.
         continuous: true # Discover credentials at startup; retry until a target is acquired.

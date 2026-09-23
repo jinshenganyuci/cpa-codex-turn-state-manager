@@ -15,7 +15,7 @@ Requires native plugin ABI 1 / schema 4 and forwarding of plugin-injected state 
    ```
 
 2. Open the plugin store, install and enable **回合状态管理**.
-3. Open **回合状态**, check the desired credentials and models, then save. Default model options are `gpt-6-astra` and `gpt-5.6-sol`.
+3. Open **回合状态**, check the desired credentials and models, then save. Default model options are `gpt-6-astra`, `gpt-6-sol` and `gpt-5.6-sol`.
 
 The CPA instance must already have working Codex OAuth credentials. Business traffic keeps each credential's proxy; independent acquisition uses that proxy by default or an explicitly enabled dashboard proxy pool. A fresh installation selects nothing and does not probe until the selection is saved. `config.example.yaml` is optional advanced configuration, not an installation step.
 
