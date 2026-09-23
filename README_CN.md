@@ -10,7 +10,7 @@
 
 1. 在 CPA 管理页的配置页面启用插件功能，将下列地址加入「插件源 registry URL」，保存。
 2. 打开插件商店，找到「回合状态管理」，点击安装并启用。
-3. 打开插件页面「回合状态」，勾选参与获取的凭据和模型，点击「保存勾选」。默认提供 `gpt-6-astra` 和 `gpt-5.6-sol`。
+3. 打开插件页面「回合状态」，勾选参与获取的凭据和模型，点击「保存勾选」。默认提供 `gpt-6-astra`、`gpt-6-sol` 和 `gpt-5.6-sol`。
 
 ```text
 https://raw.githubusercontent.com/jinshenganyuci/cpa-codex-turn-state-manager/main/registry.json
